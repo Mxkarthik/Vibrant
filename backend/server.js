@@ -1,21 +1,39 @@
 const dns = require("node:dns");
-
 dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
-const express = require("express");
 const dotenv = require("dotenv");
-const connectDB = require("./config/db");
+const express = require("express");
+
 
 dotenv.config();
-
 const app = express();
+
+
+const session = require("express-session");
+const passport = require("./config/passport");
+const connectDB = require("./config/db");
+
+
 
 app.use(express.json());
 
+app.use(
+    session({
+        secret: process.env.SESSION_SECRET,
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+            httpOnly: true,
+            secure: false, // Local development only
+            sameSite: "lax"
+        }
+    })
+);
+
+app.use(passport.initialize());
+
 app.get("/", (req, res) => {
-    res.status(200).json({
-        message: "VIBRANT Backend is running!"
-    });
+    res.json({ message: "VIBRANT Backend is running!" });
 });
 
 const startServer = async () => {
@@ -26,4 +44,6 @@ const startServer = async () => {
     });
 };
 
+const authRoutes = require("./routes/authRoutes");
+app.use("/api/auth", authRoutes);
 startServer();
