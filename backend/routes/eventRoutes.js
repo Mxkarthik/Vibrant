@@ -3,7 +3,7 @@ const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
-const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent } = require("../controllers/eventController");
+const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent } = require("../controllers/eventController");
 
 const router = express.Router();
 
@@ -59,6 +59,12 @@ router.patch(
     cancelEvent
 );
 
+router.patch(
+    "/:id/complete",
+    protect,
+    authorizeRoles("ADMIN"),
+    completeEvent
+);
 
 
 module.exports = router;

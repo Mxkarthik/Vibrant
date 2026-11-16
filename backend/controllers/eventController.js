@@ -425,7 +425,61 @@ const getAllEventsWithFilters = async (req, res) => {
     }
 };
 
+const completeEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID"
+            });
+        }
+
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found"
+            });
+        }
+
+        if (event.status === "CANCELLED") {
+            return res.status(409).json({
+                success: false,
+                message: "Cancelled events cannot be completed"
+            });
+        }
+
+        if (event.status === "COMPLETED") {
+            return res.status(409).json({
+                success: false,
+                message: "Event is already completed"
+            });
+        }
+
+        event.status = "COMPLETED";
+
+        await event.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Event marked as completed",
+            event
+        });
+
+    } catch (error) {
+        console.error("Complete event error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to complete event"
+        });
+    }
+};
+
 
 module.exports = {
-    createEvent,getAllEvents ,getAllEventsWithFilters, getEventById , updateEvent , cancelEvent
+    createEvent,getAllEvents ,getAllEventsWithFilters, getEventById , updateEvent , cancelEvent , completeEvent
 };
