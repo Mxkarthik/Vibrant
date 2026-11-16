@@ -15,6 +15,12 @@ router.post(
     createEvent
 );
 
+router.get(
+    "/filtered",
+    protect,
+    getAllEventsWithFilters
+);
+
 // Get all published events
 router.get(
     "/",
@@ -53,10 +59,6 @@ router.patch(
     cancelEvent
 );
 
-router.get(
-    "/filtered",
-    protect,
-    getAllEventsWithFilters
-);
+
 
 module.exports = router;
