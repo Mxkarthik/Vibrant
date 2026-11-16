@@ -325,6 +325,104 @@ const cancelEvent = async (req, res) => {
     }
 };
 
+const getAllEvents = async (req, res) => {
+    try {
+        const {
+            search,
+            category,
+            page = 1,
+            limit = 10
+        } = req.query;
+
+        // Validate pagination
+        const pageNumber = Number(page);
+        const limitNumber = Number(limit);
+
+        if (
+            !Number.isInteger(pageNumber) ||
+            !Number.isInteger(limitNumber) ||
+            pageNumber < 1 ||
+            limitNumber < 1 ||
+            limitNumber > 50
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters"
+            });
+        }
+
+        const filter = {
+            status: "PUBLISHED"
+        };
+
+        // Category filter
+        if (category) {
+            const allowedCategories = [
+                "TECHNICAL",
+                "CULTURAL",
+                "SPORTS",
+                "WORKSHOP",
+                "COMPETITION"
+            ];
+
+            if (!allowedCategories.includes(category)) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid event category"
+                });
+            }
+
+            filter.category = category;
+        }
+
+        // Search by event name
+        if (search && search.trim()) {
+            const escapedSearch = search.trim().replace(
+                /[.*+?^${}()|[\]\\]/g,
+                "\\$&"
+            );
+
+            filter.name = {
+                $regex: escapedSearch,
+                $options: "i"
+            };
+        }
+
+        const skip = (pageNumber - 1) * limitNumber;
+
+        const [events, totalEvents] = await Promise.all([
+            Event.find(filter)
+                .sort({ createdAt: -1 })
+                .skip(skip)
+                .limit(limitNumber)
+                .populate("createdBy", "name")
+                .lean(),
+
+            Event.countDocuments(filter)
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            pagination: {
+                totalEvents,
+                currentPage: pageNumber,
+                totalPages: Math.ceil(totalEvents / limitNumber),
+                limit: limitNumber,
+                hasNextPage: skip + events.length < totalEvents,
+                hasPreviousPage: pageNumber > 1
+            },
+            events
+        });
+
+    } catch (error) {
+        console.error("Get events error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch events"
+        });
+    }
+};
 
 module.exports = {
     createEvent,getAllEvents , getEventById , updateEvent , cancelEvent
