@@ -7,6 +7,7 @@ declare module "lucide-react" {
   export const ClipboardCheck: LucideIcon;
   export const CreditCard: LucideIcon;
   export const FileBadge: LucideIcon;
+  export const Award: LucideIcon;
   export const Settings2: LucideIcon;
   export const Users: LucideIcon;
   export const UserRoundCog: LucideIcon;
@@ -43,6 +44,9 @@ declare module "lucide-react" {
   export const Mail: LucideIcon;
   export const Phone: LucideIcon;
   export const Building2: LucideIcon;
+  export const Camera: LucideIcon;
+  export const CameraOff: LucideIcon;
+  export const KeyRound: LucideIcon;
   export const ChevronLeft: LucideIcon;
   export const ArrowUpRight: (props: IconProps) => JSX.Element;
   export const Check: (props: IconProps) => JSX.Element;

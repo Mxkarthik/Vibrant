@@ -1,10 +1,11 @@
 
 const mongoose = require("mongoose");
-const crypto = require("crypto");
 const Event = require("../models/Event");
 const Registration = require("../models/Registration");
 const Team = require("../models/Team");
 const User = require("../models/User");
+const { getCertificateEligibility, issueCertificateRecord } = require("../utils/certificateEligibility");
+const { drawCertificate } = require("../utils/certificatePdf");
 const PDFDocument = require("pdfkit");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
 // Validate and normalize event-specific answers
@@ -1081,81 +1082,42 @@ const issueEventCertificates = async (req, res) => {
         }
 
         if (event.status !== "COMPLETED") {
-            return res.status(400).json({
-                success: false,
-                message: "Certificates can only be issued after event completion."
-            });
+            return res.status(400).json({ success: false, message: "Certificates can only be issued after event completion." });
         }
 
-        const registrations = await Registration.find({
-            event: id,
-            status: "REGISTERED",
-            "attendance.isPresent": true,
-            $or: [
-                { "certificate.isIssued": false },
-                { "certificate.isIssued": { $exists: false } }
-        ]}).populate("team", "payment");
-
+        const registrations = await Registration.find({ event: id, "certificate.isIssued": { $ne: true } })
+            .populate("team", "payment");
         const issuedCertificates = [];
         const skippedCertificates = [];
+        let totalEligible = 0;
 
         for (const registration of registrations) {
-            // Team payment is shared; individual payment is separate
-            const paymentStatus = registration.team
-                ? registration.team.payment.status
-                : registration.payment.status;
-
-            if (!["VERIFIED", "NOT_REQUIRED"].includes(paymentStatus)) {
-                skippedCertificates.push({
-                    participant: registration.participantDetails.fullName,
-                    reason: "Payment not verified."
-                });
+            const participant = registration.participantDetails?.fullName || "Participant";
+            const eligibility = getCertificateEligibility(event, registration);
+            if (!eligibility.eligible) {
+                skippedCertificates.push({ registrationId: registration._id, participant, reason: eligibility.reason });
                 continue;
             }
-
-            const certificateId =
-                `VIB-${new Date().getFullYear()}-${crypto.randomBytes(6).toString("hex").toUpperCase()}`;
-
-            // Conditional update prevents issuing the same certificate twice
-            
-const updated = await Registration.findOneAndUpdate(
-    {
-        _id: registration._id,
-        $or: [
-            { "certificate.isIssued": false },
-            { "certificate.isIssued": { $exists: false } }
-        ],
-        "attendance.isPresent": true,
-        status: "REGISTERED"
-    },
-    {
-        $set: {
-            "certificate.certificateId": certificateId,
-            "certificate.issuedAt": new Date(),
-            "certificate.isIssued": true
-        }
-    },
-    {
-        returnDocument: "after",
-        runValidators: true
-    }
-);
-
-if (updated) {
-    issuedCertificates.push({
-        registrationId: updated._id,
-        participant: updated.participantDetails.fullName,
-        certificateId: certificateId
-    });
-}
-
+            totalEligible += 1;
+            try {
+                const updated = await issueCertificateRecord(registration._id);
+                if (!updated) {
+                    skippedCertificates.push({ registrationId: registration._id, participant, reason: "Certificate was already issued or the registration is no longer eligible." });
+                    continue;
+                }
+                issuedCertificates.push({ registrationId: updated._id, participant, certificateId: updated.certificate.certificateId });
+            } catch (issueError) {
+                console.error("Issue certificate record error:", issueError);
+                skippedCertificates.push({ registrationId: registration._id, participant, reason: "Certificate could not be issued. Retry this participant individually." });
+            }
         }
 
         return res.status(200).json({
             success: true,
             message: "Certificate issuance process completed.",
             event: event.name,
-            totalEligible: registrations.length,
+            totalEligible,
+            totalCandidates: registrations.length,
             issuedCount: issuedCertificates.length,
             skippedCount: skippedCertificates.length,
             certificates: issuedCertificates,
@@ -1169,6 +1131,41 @@ if (updated) {
             success: false,
             message: "Failed to issue certificates."
         });
+    }
+};
+
+const issueIndividualCertificate = async (req, res) => {
+    try {
+        const { registrationId } = req.params;
+        if (!mongoose.Types.ObjectId.isValid(registrationId)) {
+            return res.status(400).json({ success: false, message: "Invalid registration ID." });
+        }
+        const registration = await Registration.findById(registrationId)
+            .populate("event", "name startDate endDate status")
+            .populate("team", "payment");
+        if (!registration) return res.status(404).json({ success: false, message: "Registration not found." });
+        if (!registration.event) return res.status(404).json({ success: false, message: "Associated event not found." });
+        if (registration.certificate?.isIssued) {
+            return res.status(409).json({ success: false, message: "A certificate has already been issued for this participant.", certificateId: registration.certificate.certificateId });
+        }
+        const eligibility = getCertificateEligibility(registration.event, registration);
+        if (!eligibility.eligible) return res.status(400).json({ success: false, message: eligibility.reason });
+
+        const updated = await issueCertificateRecord(registration._id);
+        if (!updated) return res.status(409).json({ success: false, message: "Certificate was already issued or the registration is no longer eligible." });
+        return res.status(200).json({
+            success: true,
+            message: "Certificate issued successfully.",
+            certificate: {
+                registrationId: updated._id,
+                participantName: updated.participantDetails.fullName,
+                certificateId: updated.certificate.certificateId,
+                issuedAt: updated.certificate.issuedAt
+            }
+        });
+    } catch (error) {
+        console.error("Individual certificate issuance error:", error);
+        return res.status(500).json({ success: false, message: "Failed to issue certificate." });
     }
 };
 
@@ -1206,7 +1203,7 @@ const downloadCertificate = async (req, res) => {
             });
         }
 
-        // Create PDF in landscape A4 format
+        // Keep public certificate-ID downloads for verification; the ID is a random bearer identifier.
         const doc = new PDFDocument({
             size: "A4",
             layout: "landscape",
@@ -1227,124 +1224,13 @@ const downloadCertificate = async (req, res) => {
 
         doc.pipe(res);
 
-        // Background
-        doc.rect(0, 0, 842, 595)
-            .fill("#FFFFFF");
-
-        // Outer border
-        doc.lineWidth(5)
-            .strokeColor("#172B3A")
-            .rect(20, 20, 802, 555)
-            .stroke();
-
-        // Inner border
-        doc.lineWidth(1.5)
-            .strokeColor("#315B79")
-            .rect(32, 32, 778, 531)
-            .stroke();
-
-        // College name
-        doc.fillColor("#315B79")
-            .font("Helvetica-Bold")
-            .fontSize(16)
-            .text(
-                "DADI INSTITUTE OF ENGINEERING AND TECHNOLOGY",
-                55,
-                75,
-                { align: "center" }
-            );
-
-        // Certificate heading
-        doc.fillColor("#172B3A")
-            .font("Helvetica-Bold")
-            .fontSize(36)
-            .text("CERTIFICATE", 55, 145, {
-                align: "center"
-            });
-
-        doc.fillColor("#315B79")
-            .fontSize(20)
-            .text("OF PARTICIPATION", 55, 195, {
-                align: "center"
-            });
-
-        doc.fillColor("#555555")
-            .font("Helvetica")
-            .fontSize(15)
-            .text("This certificate is proudly presented to", 55, 250, {
-                align: "center"
-            });
-
-        // Participant name
-        doc.fillColor("#172B3A")
-            .font("Helvetica-Bold")
-            .fontSize(29)
-            .text(
-                registration.participantDetails.fullName,
-                65,
-                285,
-                {
-                    align: "center",
-                    width: 712
-                }
-            );
-
-        doc.fillColor("#555555")
-            .font("Helvetica")
-            .fontSize(15)
-            .text("For successfully participating in", 55, 340, {
-                align: "center"
-            });
-
-        // Event name
-        doc.fillColor("#315B79")
-            .font("Helvetica-Bold")
-            .fontSize(21)
-            .text(event.name, 65, 375, {
-                align: "center",
-                width: 712
-            });
-
-        const eventDate = new Date(event.startDate).toLocaleDateString(
-            "en-IN",
-            {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-                timeZone: "Asia/Kolkata"
-            }
-        );
-
-        doc.fillColor("#555555")
-            .font("Helvetica")
-            .fontSize(13)
-            .text(`Event Date: ${eventDate}`, 55, 425, {
-                align: "center"
-            });
-
-        // Certificate ID and issue date
-        doc.fontSize(10)
-            .fillColor("#555555")
-            .text(
-                `Certificate ID: ${certificateId}`,
-                55,
-                510
-            );
-
-        doc.text(
-            `Issued: ${new Date(registration.certificate.issuedAt).toLocaleDateString("en-IN")}`,
-            55,
-            530
-        );
-
-        doc.font("Helvetica-Bold")
-            .fontSize(12)
-            .fillColor("#172B3A")
-            .text("Authorized Signature", 620, 515, {
-                width: 150,
-                align: "center"
-            });
-
+        drawCertificate(doc, {
+            participantName: registration.participantDetails.fullName,
+            eventName: event.name,
+            eventStartDate: event.startDate,
+            certificateId,
+            issuedAt: registration.certificate.issuedAt
+        });
         doc.end();
 
     } catch (error) {
@@ -1461,6 +1347,7 @@ module.exports = {
     getEventAttendanceReport,
     exportEventParticipants,
     issueEventCertificates,
+    issueIndividualCertificate,
     downloadCertificate,
     uploadRegistrationPaymentProof
 };

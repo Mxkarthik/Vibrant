@@ -8,6 +8,10 @@ import CreateEventPage from "./pages/admin/CreateEventPage";
 import EditEventPage from "./pages/admin/EditEventPage";
 import EventDetailsPage from "./pages/admin/EventDetailsPage";
 import ParticipantsPage from "./pages/admin/ParticipantsPage";
+import PaymentsPage from "./pages/admin/PaymentsPage";
+import OrganisersPage from "./pages/admin/OrganisersPage";
+import AttendancePage from "./pages/admin/AttendancePage";
+import CertificatesPage from "./pages/admin/CertificatesPage";
 
 export default function App() {
   return <Routes>
@@ -19,10 +23,10 @@ export default function App() {
       <Route path="/admin/events/:id/edit" element={<EditEventPage />} />
       <Route path="/admin/events/:id" element={<EventDetailsPage />} />
       <Route path="/admin/participants" element={<ParticipantsPage />} />
-      <Route path="/admin/payments" element={<AdminSectionPage />} />
-      <Route path="/admin/organisers" element={<AdminSectionPage />} />
-      <Route path="/admin/attendance" element={<AdminSectionPage />} />
-      <Route path="/admin/certificates" element={<AdminSectionPage />} />
+      <Route path="/admin/payments" element={<PaymentsPage />} />
+      <Route path="/admin/organisers" element={<OrganisersPage />} />
+      <Route path="/admin/attendance" element={<AttendancePage />} />
+      <Route path="/admin/certificates" element={<CertificatesPage />} />
       <Route path="/admin/settings" element={<AdminSectionPage />} />
     </Route></Route>
     <Route path="/unauthorized" element={<UnauthorizedPage />} />
