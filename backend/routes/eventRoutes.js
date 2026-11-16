@@ -2,7 +2,7 @@
 const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
-
+const {registerForEvent} = require("../controllers/registrationController");
 const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent } = require("../controllers/eventController");
 
 const router = express.Router();
@@ -13,6 +13,12 @@ router.post(
     protect,
     authorizeRoles("ADMIN"),
     createEvent
+);
+
+router.post(
+    "/:id/register", 
+    protect, 
+    registerForEvent
 );
 
 router.get(
