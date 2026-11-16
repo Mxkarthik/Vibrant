@@ -4,11 +4,15 @@ const Event = require("../models/Event");
 const Team = require("../models/Team");
 const Registration = require("../models/Registration");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
+const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const registerTeam = async (req, res) => {
-    const session = await mongoose.startSession();
-
+    let session;
     try {
+        if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+            return res.status(400).json({ success: false, message: "Invalid request body." });
+        }
+
         const { teamName, members, paymentMethod } = req.body;
 
         // Basic validation
@@ -51,7 +55,7 @@ const registerTeam = async (req, res) => {
         for (let i = 0; i < members.length; i++) {
             const details = members[i]?.participantDetails;
 
-            if (!details || typeof details !== "object") {
+            if (!details || typeof details !== "object" || Array.isArray(details)) {
                 return res.status(400).json({
                     success: false,
                     message: `Participant details missing for member ${i + 1}.`
@@ -78,7 +82,24 @@ const registerTeam = async (req, res) => {
             }
         }
 
+        const normalizedMobiles = members.map(member => member.participantDetails.mobileNumber.trim().replace(/\D/g, ""));
+        if (new Set(normalizedMobiles).size !== normalizedMobiles.length) {
+            return res.status(400).json({
+                success: false,
+                message: "Each team member must have a distinct mobile number."
+            });
+        }
+
+        const rollCollegeKeys = members.map(member => `${member.participantDetails.collegeName.trim().toLocaleLowerCase()}\u0000${member.participantDetails.rollNumber.trim().toLocaleLowerCase()}`);
+        if (new Set(rollCollegeKeys).size !== rollCollegeKeys.length) {
+            return res.status(400).json({
+                success: false,
+                message: "A student can only be listed once on the team."
+            });
+        }
+
         const leaderId = req.user._id;
+        session = await mongoose.startSession();
 
         await session.withTransaction(async () => {
             const event = await Event.findById(req.params.id).session(session);
@@ -104,6 +125,17 @@ const registerTeam = async (req, res) => {
             if (new Date() > new Date(event.registration.deadline)) {
                 const error = new Error("Registration deadline has passed.");
                 error.statusCode = 400;
+                throw error;
+            }
+
+            const existingLeaderTeam = await Team.findOne({
+                event: event._id,
+                leader: leaderId,
+                status: "REGISTERED"
+            }).select("_id").session(session);
+            if (existingLeaderTeam) {
+                const error = new Error("You already lead a team registered for this event.");
+                error.statusCode = 409;
                 throw error;
             }
 
@@ -141,6 +173,24 @@ const registerTeam = async (req, res) => {
             // Validate event-specific fields for every member
             const configuredFields = event.registrationFields || [];
 
+            const registrationIdentities = members.map(member => ({
+                "participantDetails.collegeName": { $regex: `^${escapeRegex(member.participantDetails.collegeName.trim())}$`, $options: "i" },
+                "participantDetails.rollNumber": { $regex: `^${escapeRegex(member.participantDetails.rollNumber.trim())}$`, $options: "i" }
+            }));
+            const membershipConflict = await Registration.findOne({
+                event: event._id,
+                status: "REGISTERED",
+                $or: [
+                    { "participantDetails.mobileNumber": { $in: members.map(member => member.participantDetails.mobileNumber.trim()) } },
+                    ...registrationIdentities
+                ]
+            }).select("_id").session(session);
+            if (membershipConflict) {
+                const error = new Error("One or more members already have an active registration for this event.");
+                error.statusCode = 409;
+                throw error;
+            }
+
             for (let i = 0; i < members.length; i++) {
                 const responses = members[i].customResponses || [];
 
@@ -154,7 +204,11 @@ const registerTeam = async (req, res) => {
 
                 const seen = new Set();
 
+                try {
                 for (const response of responses) {
+                    if (!response || typeof response !== "object" || Array.isArray(response) || typeof response.fieldKey !== "string") {
+                        throw new Error(`Invalid custom field for member ${i + 1}.`);
+                    }
                     const field = configuredFields.find(
                         item => item.fieldKey === response.fieldKey
                     );
@@ -169,14 +223,16 @@ const registerTeam = async (req, res) => {
 
                     seen.add(response.fieldKey);
 
-                    const value = response.value;
+                    let value = response.value;
 
                     if (
                         field.required &&
                         (
                             value === undefined ||
                             value === null ||
-                            value === ""
+                            value === "" ||
+                            (Array.isArray(value) && value.length === 0) ||
+                            (typeof value === "string" && !value.trim())
                         )
                     ) {
                         const error = new Error(
@@ -187,11 +243,9 @@ const registerTeam = async (req, res) => {
                     }
 
                     if (value !== undefined && value !== null) {
-                        if (
-                            ["TEXT", "TEXTAREA"].includes(field.fieldType) &&
-                            typeof value !== "string"
-                        ) {
-                            throw new Error(`${field.label} must be text.`);
+                        if (["TEXT", "TEXTAREA"].includes(field.fieldType)) {
+                            if (typeof value !== "string") throw new Error(`${field.label} must be text.`);
+                            value = value.trim();
                         }
 
                         if (
@@ -221,12 +275,19 @@ const registerTeam = async (req, res) => {
 
                         if (
                             field.fieldType === "URL" &&
-                            (
-                                typeof value !== "string" ||
-                                !/^https?:\/\/.+/i.test(value)
-                            )
+                            typeof value !== "string"
                         ) {
                             throw new Error(`${field.label} must be a valid URL.`);
+                        }
+
+                        if (field.fieldType === "URL") {
+                            try {
+                                const parsedUrl = new URL(value);
+                                if (!["http:", "https:"].includes(parsedUrl.protocol)) throw new Error();
+                                value = value.trim();
+                            } catch {
+                                throw new Error(`${field.label} must be a valid HTTP or HTTPS URL.`);
+                            }
                         }
 
                         if (
@@ -252,6 +313,10 @@ const registerTeam = async (req, res) => {
                         error.statusCode = 400;
                         throw error;
                     }
+                }
+                } catch (validationError) {
+                    if (!validationError.statusCode) validationError.statusCode = 400;
+                    throw validationError;
                 }
             }
 
@@ -349,9 +414,7 @@ const registerTeam = async (req, res) => {
 
         const registrations = await Registration.find({
             team: createdTeam._id
-        }).select(
-            "participantDetails isTeamLeader qrToken status attendance"
-        );
+        }).select("participantDetails isTeamLeader status");
 
         return res.status(201).json({
             success: true,
@@ -362,7 +425,12 @@ const registerTeam = async (req, res) => {
                 memberCount: createdTeam.memberCount,
                 payment: createdTeam.payment
             },
-            registrations
+            registrations: registrations.map(registration => ({
+                id: registration._id,
+                participantDetails: registration.participantDetails,
+                isTeamLeader: registration.isTeamLeader,
+                status: registration.status
+            }))
         });
 
     } catch (error) {
@@ -378,7 +446,53 @@ const registerTeam = async (req, res) => {
         });
 
     } finally {
-        await session.endSession();
+        if (session) await session.endSession();
+    }
+};
+
+// Team leaders may view only teams they created. QR tokens and payment proof metadata are not selected.
+const getLeaderTeamById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ success: false, message: "Invalid team ID." });
+        }
+
+        const team = await Team.findOne({ _id: id, leader: req.user._id })
+            .select("event teamName leader memberCount status payment.method payment.status payment.proofUrl createdAt")
+            .populate("event", "name category poster venue startDate endDate status registration.registrationFee")
+            .lean();
+        if (!team) {
+            return res.status(404).json({ success: false, message: "Team not found." });
+        }
+
+        const registrations = await Registration.find({ team: team._id })
+            .select("participantDetails isTeamLeader status createdAt")
+            .sort({ isTeamLeader: -1, createdAt: 1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            team: {
+                id: team._id,
+                teamName: team.teamName,
+                memberCount: team.memberCount,
+                status: team.status,
+                createdAt: team.createdAt,
+                payment: team.payment,
+                event: team.event,
+                members: registrations.map(registration => ({
+                    registrationId: registration._id,
+                    participantDetails: registration.participantDetails,
+                    isTeamLeader: registration.isTeamLeader,
+                    status: registration.status,
+                    registeredAt: registration.createdAt
+                }))
+            }
+        });
+    } catch (error) {
+        console.error("Get leader team error:", error);
+        return res.status(500).json({ success: false, message: "Failed to fetch team details." });
     }
 };
 
@@ -547,6 +661,7 @@ const uploadTeamPaymentProof = async (req, res) => {
 
 module.exports = {
     registerTeam,
+    getLeaderTeamById,
     updateTeamPaymentStatus,
     uploadTeamPaymentProof
 };

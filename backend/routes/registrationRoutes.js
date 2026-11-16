@@ -14,7 +14,7 @@ const {
 
 const router = express.Router();
 
-const upload = require("../middleware/uploadMiddleware");
+const paymentProofUpload = require("../middleware/paymentProofUpload");
 
 const {
     downloadCertificate
@@ -47,7 +47,8 @@ router.get(
 router.post(
     "/:id/payment-proof",
     protect,
-    upload.single("screenshot"),
+    authorizeRoles("PARTICIPANT"),
+    paymentProofUpload,
     uploadRegistrationPaymentProof
 );
 

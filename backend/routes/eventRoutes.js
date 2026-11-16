@@ -55,7 +55,7 @@ router.get(
     exportEventParticipants
 );
 
-router.post("/:id/register", protect, registerForEvent);
+router.post("/:id/register", protect, authorizeRoles("PARTICIPANT"), registerForEvent);
 
 router.get(
     "/filtered",
@@ -116,7 +116,7 @@ router.get(
     getEventAttendanceReport
 );
 
-router.post("/:id/register-team", protect, registerTeam);
+router.post("/:id/register-team", protect, authorizeRoles("PARTICIPANT"), registerTeam);
 
 router.get("/:id/participants", protect, getEventParticipants);
 

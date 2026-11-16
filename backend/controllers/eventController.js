@@ -537,17 +537,32 @@ const getAllEventsWithFilters = async (req, res) => {
         const {
             search,
             category,
-            page = 1,
-            limit = 10
+            page = "1",
+            limit = "10",
+            filter: availabilityFilter,
+            sortBy = "latest"
         } = req.query;
+
+        if (
+            (search !== undefined && (typeof search !== "string" || search.length > 120)) ||
+            (category !== undefined && typeof category !== "string") ||
+            (availabilityFilter !== undefined && typeof availabilityFilter !== "string") ||
+            typeof sortBy !== "string" ||
+            typeof page !== "string" ||
+            typeof limit !== "string" ||
+            !/^\d+$/.test(page) ||
+            !/^\d+$/.test(limit)
+        ) {
+            return res.status(400).json({ success: false, message: "Invalid event query parameters" });
+        }
 
         // Validate pagination
         const pageNumber = Number(page);
         const limitNumber = Number(limit);
 
         if (
-            !Number.isInteger(pageNumber) ||
-            !Number.isInteger(limitNumber) ||
+            !Number.isSafeInteger(pageNumber) ||
+            !Number.isSafeInteger(limitNumber) ||
             pageNumber < 1 ||
             limitNumber < 1 ||
             limitNumber > 50
@@ -558,7 +573,7 @@ const getAllEventsWithFilters = async (req, res) => {
             });
         }
 
-        const filter = {
+        const eventFilter = {
             status: "PUBLISHED"
         };
 
@@ -579,33 +594,71 @@ const getAllEventsWithFilters = async (req, res) => {
                 });
             }
 
-            filter.category = category;
+            eventFilter.category = category;
         }
 
-        // Search by event name
+        // Search event name, description, or category.
         if (search && search.trim()) {
             const escapedSearch = search.trim().replace(
                 /[.*+?^${}()|[\]\\]/g,
                 "\\$&"
             );
 
-            filter.name = {
+            const searchExpression = {
                 $regex: escapedSearch,
                 $options: "i"
             };
+            eventFilter.$or = [
+                { name: searchExpression },
+                { description: searchExpression },
+                { category: searchExpression }
+            ];
+        }
+
+        const now = new Date();
+        const allowedFilters = ["upcoming", "open", "closing-soon", "free", "paid"];
+        if (availabilityFilter && !allowedFilters.includes(availabilityFilter)) {
+            return res.status(400).json({ success: false, message: "Invalid event filter" });
+        }
+        if (availabilityFilter === "upcoming") {
+            eventFilter.endDate = { $gte: now };
+        } else if (availabilityFilter === "open") {
+            eventFilter["registration.deadline"] = { $gt: now };
+            eventFilter.$expr = { $lt: ["$registration.registeredParticipants", "$registration.capacity"] };
+        } else if (availabilityFilter === "closing-soon") {
+            eventFilter["registration.deadline"] = { $gt: now, $lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) };
+            eventFilter.$expr = { $lt: ["$registration.registeredParticipants", "$registration.capacity"] };
+        } else if (availabilityFilter === "free") {
+            eventFilter["registration.registrationFee"] = 0;
+        } else if (availabilityFilter === "paid") {
+            eventFilter["registration.registrationFee"] = { $gt: 0 };
+        }
+
+        const allowedSorts = ["upcoming", "latest", "name"];
+        if (!allowedSorts.includes(sortBy)) {
+            return res.status(400).json({ success: false, message: "Invalid event sort order" });
         }
 
         const skip = (pageNumber - 1) * limitNumber;
 
         const [events, totalEvents] = await Promise.all([
-            Event.find(filter)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limitNumber)
-                .populate("createdBy", "name")
-                .lean(),
+            sortBy === "upcoming"
+                ? Event.aggregate([
+                    { $match: eventFilter },
+                    { $addFields: { _isUpcoming: { $gte: ["$endDate", now] } } },
+                    { $sort: { _isUpcoming: -1, startDate: 1, createdAt: -1 } },
+                    { $skip: skip },
+                    { $limit: limitNumber },
+                    { $project: { _isUpcoming: 0 } }
+                ]).then(events => Event.populate(events, { path: "createdBy", select: "name" }))
+                : Event.find(eventFilter)
+                    .sort(sortBy === "name" ? { name: 1, _id: 1 } : { createdAt: -1 })
+                    .skip(skip)
+                    .limit(limitNumber)
+                    .populate("createdBy", "name")
+                    .lean(),
 
-            Event.countDocuments(filter)
+            Event.countDocuments(eventFilter)
         ]);
 
         return res.status(200).json({

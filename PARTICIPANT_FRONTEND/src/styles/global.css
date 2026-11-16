@@ -17,29 +17,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7899ad; outline-offs
 .intro-phrase:nth-child(2) { animation: intro-copy-two 6s both; }
 .intro-phrase:nth-child(3) { animation: intro-copy-three 6s both; }
 
-.home-screen { display: flex; min-height: 100svh; flex-direction: column; padding: 0 clamp(22px, 7vw, 104px); background: var(--paper); animation: home-arrive .65s ease-out both; }
-.home-header { display: flex; width: min(100%, 1320px); height: 86px; align-items: center; justify-content: space-between; margin: 0 auto; border-bottom: 1px solid var(--border); }
-.home-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--navy); font-size: 14px; font-weight: 800; letter-spacing: .12em; text-decoration: none; }
-.home-brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid #d8e0e5; border-radius: 50%; color: var(--blue); font-size: 17px; letter-spacing: -.08em; }
-.brand-year { margin-left: 3px; color: var(--accent); }
-.home-edition { color: #8795a0; font-size: 10px; font-weight: 700; letter-spacing: .18em; }
-.home-hero { width: min(100%, 1320px); margin: auto; padding: clamp(62px, 12vh, 132px) 0 clamp(55px, 9vh, 104px); }
-.home-eyebrow { display: flex; align-items: center; gap: 10px; margin: 0 0 25px; color: var(--blue); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
-.home-eyebrow span { width: 24px; height: 1px; background: var(--accent); }
-.home-hero h1 { max-width: 900px; margin: 0; color: var(--navy); font-size: clamp(48px, 8vw, 100px); font-weight: 500; letter-spacing: -.075em; line-height: .99; }
-.home-hero h1 span { color: var(--blue); }
-.home-description { max-width: 470px; margin: 26px 0 0; color: var(--muted); font-size: clamp(15px, 1.6vw, 18px); line-height: 1.7; }
-.home-rule { display: flex; width: min(100%, 560px); align-items: center; gap: 12px; margin-top: 47px; color: #8996a0; font-size: 10px; font-weight: 700; letter-spacing: .16em; }
-.home-rule span { height: 1px; flex: 1; background: var(--border); }
-.home-rule span:first-child { max-width: 55px; background: var(--accent); }
-.home-placeholder { position: relative; display: flex; width: min(100%, 1320px); min-height: 150px; align-items: center; gap: 26px; margin: 0 auto 42px; padding: 27px 30px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-md); background: #fbfcfd; box-shadow: var(--shadow-soft); }
-.placeholder-index { align-self: flex-start; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
-.home-placeholder > div { position: relative; z-index: 1; }
-.home-placeholder > div p { margin: 0 0 7px; color: #82919c; font-size: 10px; font-weight: 700; letter-spacing: .15em; }
-.home-placeholder h2 { margin: 0; color: #304858; font-size: clamp(18px, 2vw, 23px); font-weight: 600; letter-spacing: -.03em; }
-.home-placeholder > div > span { display: block; margin-top: 6px; color: var(--muted); font-size: 13px; }
-.placeholder-mark { position: absolute; right: 25px; bottom: -59px; color: #f1f4f6; font-size: 190px; font-weight: 800; letter-spacing: -.13em; line-height: 1; user-select: none; }
-.home-footer { display: flex; width: min(100%, 1320px); min-height: 58px; align-items: center; justify-content: space-between; gap: 15px; margin: 0 auto; border-top: 1px solid var(--border); color: #8c99a2; font-size: 9px; font-weight: 700; letter-spacing: .14em; }
 
 @keyframes intro-copy-one {
   0%, 3% { opacity: 0; transform: translate3d(0, 7px, 0); }
@@ -58,33 +35,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid #7899ad; outline-offs
 }
 @keyframes intro-progress-fill { to { transform: scaleX(1); } }
 @keyframes intro-screen-exit { to { opacity: 0; visibility: hidden; } }
-@keyframes home-arrive { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 
 @media (max-width: 600px) {
   .intro-brand { font-size: clamp(36px, 10.2vw, 58px); }
   .intro-progress { margin-top: 22px; }
   .intro-phrase-slot { margin-top: 14px; }
-  .home-screen { padding-inline: 20px; }
-  .home-header { height: 70px; }
-  .home-edition { font-size: 8px; letter-spacing: .13em; }
-  .home-hero { padding-block: 78px 65px; }
-  .home-eyebrow { margin-bottom: 20px; font-size: 9px; }
-  .home-hero h1 { font-size: clamp(46px, 13vw, 70px); }
-  .home-description { max-width: 360px; margin-top: 20px; font-size: 15px; }
-  .home-rule { margin-top: 34px; }
-  .home-placeholder { min-height: 136px; gap: 14px; margin-bottom: 25px; padding: 20px 17px; }
-  .placeholder-mark { right: 10px; bottom: -36px; font-size: 130px; }
-  .home-placeholder > div > span { max-width: 250px; font-size: 12px; }
-  .home-footer { min-height: 52px; font-size: 8px; letter-spacing: .1em; }
 }
 @media (max-width: 360px) {
   .intro-brand { font-size: 34px; letter-spacing: -.07em; }
-  .home-screen { padding-inline: 16px; }
-  .home-footer { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-phrase { transform: none !important; animation-duration: 6s; }
   .intro-progress span { animation-duration: 6s; }
   .intro-screen { animation-duration: .01ms; animation-delay: 5.999s; }
-  .home-screen { animation: none; }
 }

@@ -272,10 +272,16 @@ const registerForEvent = async (req, res) => {
                 throw error;
             }
 
-            const normalizedResponses = validateCustomResponses(
-                event.registrationFields || [],
-                customResponses
-            );
+            let normalizedResponses;
+            try {
+                normalizedResponses = validateCustomResponses(
+                    event.registrationFields || [],
+                    customResponses
+                );
+            } catch (validationError) {
+                validationError.statusCode = 400;
+                throw validationError;
+            }
 
             const fee = event.registration.registrationFee || 0;
 
@@ -589,7 +595,7 @@ const getRegistrationById = async (req, res) => {
         const registration = await Registration.findById(id)
             .select("-qrToken")
             .populate("user", "name email")
-            .populate("event", "name category venue startDate endDate")
+            .populate("event", "name category venue startDate endDate registration.registrationFee")
             .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } });
 
         if (!registration) {
