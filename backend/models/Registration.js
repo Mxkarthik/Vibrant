@@ -92,7 +92,23 @@ const registrationSchema = new mongoose.Schema(
                 enum: ["UPI", "CASH", "NONE"],
                 default: "NONE"
             },
-
+        certificate: 
+        {
+            certificateId: {
+                type: String,
+                unique: true,
+                sparse: true,
+                default: null
+            },
+            issuedAt: {
+                type: Date,
+                default: null
+            },
+            isIssued: {
+                type: Boolean,
+                default: false
+            }
+        },
             status: {
                 type: String,
                 enum: ["NOT_REQUIRED", "PENDING", "VERIFIED", "REJECTED"],
