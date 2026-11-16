@@ -23,7 +23,8 @@ const teamSchema = new mongoose.Schema(
 
         memberCount: {
             type: Number,
-            required: true
+            required: true,
+            min: 1
         },
 
         payment: {

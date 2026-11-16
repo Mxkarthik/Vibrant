@@ -13,7 +13,18 @@ const registrationSchema = new mongoose.Schema(
         user: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
-            required: true
+            default: null
+        },
+
+        team: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Team",
+            default: null
+        },
+
+        isTeamLeader: {
+            type: Boolean,
+            default: false
         },
 
         // Standard participant information
@@ -139,7 +150,12 @@ const registrationSchema = new mongoose.Schema(
 // A user can register only once for an event.
 registrationSchema.index(
     { event: 1, user: 1 },
-    { unique: true }
+    {
+        unique: true,
+        partialFilterExpression: {
+            user: { $type: "objectId" }
+        }
+    }
 );
 
 module.exports = mongoose.model("Registration", registrationSchema);
