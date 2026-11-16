@@ -5,6 +5,47 @@ const mongoose = require("mongoose");
 // @route   POST /api/events
 // @access  ADMIN only
 
+const allowedFieldTypes = [
+    "TEXT",
+    "TEXTAREA",
+    "NUMBER",
+    "DROPDOWN",
+    "RADIO",
+    "CHECKBOX",
+    "DATE",
+    "URL"
+];
+
+if (!Array.isArray(registrationFields)) {
+    return res.status(400).json({
+        success: false,
+        message: "Registration fields must be an array"
+    });
+}
+
+for (const field of registrationFields) {
+    if (
+        !field.label ||
+        !field.fieldKey ||
+        !allowedFieldTypes.includes(field.fieldType)
+    ) {
+        return res.status(400).json({
+            success: false,
+            message: "Invalid registration field configuration"
+        });
+    }
+
+    if (
+        ["DROPDOWN", "RADIO", "CHECKBOX"].includes(field.fieldType) &&
+        (!Array.isArray(field.options) || field.options.length === 0)
+    ) {
+        return res.status(400).json({
+            success: false,
+            message: `${field.label} requires options`
+        });
+    }
+}
+
 const createEvent = async (req, res) => {
     try {
         const {
@@ -15,7 +56,8 @@ const createEvent = async (req, res) => {
             venue,
             startDate,
             endDate,
-            registration
+            registration,
+            registrationFields = []
         } = req.body;
 
         // Create event
@@ -43,7 +85,7 @@ const createEvent = async (req, res) => {
         // Always controlled by the backend
         registeredParticipants: 0
     },
-
+    registrationFields,
     createdBy: req.user._id,
     status: "PUBLISHED"
 });
