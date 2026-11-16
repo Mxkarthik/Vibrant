@@ -92,13 +92,10 @@ const registrationSchema = new mongoose.Schema(
                 enum: ["UPI", "CASH", "NONE"],
                 default: "NONE"
             },
-        certificate: 
-        {
+        certificate: {
             certificateId: {
                 type: String,
-                unique: true,
-                sparse: true,
-                default: null
+                default: undefined
             },
             issuedAt: {
                 type: Date,
@@ -170,6 +167,16 @@ registrationSchema.index(
         unique: true,
         partialFilterExpression: {
             user: { $type: "objectId" }
+        }
+    }
+);
+
+registrationSchema.index(
+    { "certificate.certificateId": 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            "certificate.certificateId": { $type: "string" }
         }
     }
 );
