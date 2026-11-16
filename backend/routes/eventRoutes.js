@@ -1,6 +1,5 @@
 
 const express = require("express");
-
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
@@ -15,5 +14,12 @@ router.post(
     authorizeRoles("ADMIN"),
     createEvent
 );
+
+router.get("/test", (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: "Event routes are working!"
+    });
+});
 
 module.exports = router;

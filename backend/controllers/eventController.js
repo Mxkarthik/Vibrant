@@ -27,10 +27,26 @@ const createEvent = async (req, res) => {
             venue,
             startDate,
             endDate,
-            registration,
-            createdBy: req.user._id,
-            status: "PUBLISHED"
-        });
+
+            registration: {
+                mode: registration.mode,
+                deadline: registration.deadline,
+                capacity: registration.capacity,
+                registrationFee: registration.registrationFee ?? 0,
+                minTeamSize: registration.mode === "TEAM"
+                    ? registration.minTeamSize
+                    : 1,
+                maxTeamSize: registration.mode === "TEAM"
+                    ? registration.maxTeamSize
+                    : 1,
+
+        // Always controlled by the backend
+        registeredParticipants: 0
+    },
+
+    createdBy: req.user._id,
+    status: "PUBLISHED"
+});
 
         return res.status(201).json({
             success: true,
