@@ -9,7 +9,9 @@ const {
 } = require("../controllers/registrationController");
 const router = express.Router();
 const { registerTeam } = require("../controllers/teamRegistrationController");
-
+const {
+    issueEventCertificates
+} = require("../controllers/registrationController");
 
 // Create event - ADMIN only
 router.post(
@@ -17,6 +19,13 @@ router.post(
     protect,
     authorizeRoles("ADMIN"),
     createEvent
+);
+
+router.post(
+    "/:id/certificates/issue",
+    protect,
+    authorizeRoles("ADMIN"),
+    issueEventCertificates
 );
 
 router.get(

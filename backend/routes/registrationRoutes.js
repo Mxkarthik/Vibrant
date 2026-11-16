@@ -13,6 +13,10 @@ const {
 
 const router = express.Router();
 
+const {
+    downloadCertificate
+} = require("../controllers/registrationController");
+
 // Participant: view own registrations
 router.get("/my", protect, getMyRegistrations);
 
@@ -29,6 +33,11 @@ router.patch(
     protect,
     authorizeRoles("ADMIN"),
     updatePaymentStatus
+);
+
+router.get(
+    "/certificate/:certificateId/download",
+    downloadCertificate
 );
 
 // Participant, admin or assigned organiser: view registration

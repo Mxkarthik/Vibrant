@@ -34,19 +34,16 @@ const registrationSchema = new mongoose.Schema(
                 required: true,
                 trim: true
             },
-
             mobileNumber: {
                 type: String,
                 required: true,
                 trim: true
             },
-
             collegeName: {
                 type: String,
                 required: true,
                 trim: true
             },
-
             department: {
                 type: String,
                 required: true,
@@ -57,13 +54,11 @@ const registrationSchema = new mongoose.Schema(
                 required: true,
                 trim: true
             },
-
             yearOfStudy: {
                 type: String,
                 required: true,
                 trim: true
             },
-
             rollNumber: {
                 type: String,
                 required: true,
@@ -78,7 +73,6 @@ const registrationSchema = new mongoose.Schema(
                     type: String,
                     required: true
                 },
-
                 value: {
                     type: mongoose.Schema.Types.Mixed
                 }
@@ -92,37 +86,20 @@ const registrationSchema = new mongoose.Schema(
                 enum: ["UPI", "CASH", "NONE"],
                 default: "NONE"
             },
-        certificate: {
-            certificateId: {
-                type: String,
-                default: undefined
-            },
-            issuedAt: {
-                type: Date,
-                default: null
-            },
-            isIssued: {
-                type: Boolean,
-                default: false
-            }
-        },
             status: {
                 type: String,
                 enum: ["NOT_REQUIRED", "PENDING", "VERIFIED", "REJECTED"],
                 default: "PENDING"
             },
-
             proofUrl: {
                 type: String,
                 default: null
             },
-
             verifiedBy: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",
                 default: null
             },
-
             verifiedAt: {
                 type: Date,
                 default: null
@@ -142,10 +119,25 @@ const registrationSchema = new mongoose.Schema(
                 type: Boolean,
                 default: false
             },
-
             checkedInAt: {
                 type: Date,
                 default: null
+            }
+        },
+
+        // Certificate details (top-level field)
+        certificate: {
+            certificateId: {
+                type: String,
+                default: undefined
+            },
+            issuedAt: {
+                type: Date,
+                default: null
+            },
+            isIssued: {
+                type: Boolean,
+                default: false
             }
         },
 
@@ -171,6 +163,7 @@ registrationSchema.index(
     }
 );
 
+// Certificate IDs must be unique when present.
 registrationSchema.index(
     { "certificate.certificateId": 1 },
     {
