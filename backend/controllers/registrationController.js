@@ -381,9 +381,264 @@ const registerForEvent = async (req, res) => {
 };
 
 
+// @desc    Get registrations of logged-in participant
+// @route   GET /api/registrations/my
+// @access  Authenticated users
+
+const getMyRegistrations = async (req, res) => {
+    try {
+        const registrations = await Registration.find({
+            user: req.user._id,
+            status: "REGISTERED"
+        })
+            .populate("event", "name category poster venue startDate endDate status")
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.status(200).json({
+            success: true,
+            count: registrations.length,
+            registrations
+        });
+
+    } catch (error) {
+        console.error("Get my registrations error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch your registrations"
+        });
+    }
+};
 
 
+// @desc    Get all participants registered for an event
+// @route   GET /api/events/:id/participants
+// @access  ADMIN or assigned ORGANISER
+
+const getEventParticipants = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID"
+            });
+        }
+
+        const event = await Event.findById(id)
+            .select("name organizers createdBy");
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found"
+            });
+        }
+
+        const isAdmin = req.user.role === "ADMIN";
+
+        const isAssignedOrganiser = event.organizers.some(
+            organiserId => organiserId.toString() === req.user._id.toString()
+        );
+
+        if (!isAdmin && !isAssignedOrganiser) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to view these participants"
+            });
+        }
+
+        const page = Number.parseInt(req.query.page, 10) || 1;
+        const limit = Number.parseInt(req.query.limit, 10) || 20;
+
+        if (
+            !Number.isInteger(page) ||
+            !Number.isInteger(limit) ||
+            page < 1 ||
+            limit < 1 ||
+            limit > 100
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pagination parameters"
+            });
+        }
+
+        const filter = {
+            event: id,
+            status: "REGISTERED"
+        };
+
+        const [registrations, total] = await Promise.all([
+            Registration.find(filter)
+                .populate("user", "name email")
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
+
+            Registration.countDocuments(filter)
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            event: {
+                id: event._id,
+                name: event.name
+            },
+            pagination: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit)
+            },
+            registrations
+        });
+
+    } catch (error) {
+        console.error("Get event participants error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch event participants"
+        });
+    }
+};
+
+
+// @desc    Get one registration
+// @route   GET /api/registrations/:id
+// @access  Owner, ADMIN or assigned ORGANISER
+
+const getRegistrationById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid registration ID"
+            });
+        }
+
+        const registration = await Registration.findById(id)
+            .populate("user", "name email")
+            .populate("event", "name category venue startDate endDate organizers");
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                message: "Registration not found"
+            });
+        }
+
+        const isOwner =
+            registration.user._id.toString() === req.user._id.toString();
+
+        const isAdmin = req.user.role === "ADMIN";
+
+        const isAssignedOrganiser =
+            registration.event.organizers.some(
+                organiserId =>
+                    organiserId.toString() === req.user._id.toString()
+            );
+
+        if (!isOwner && !isAdmin && !isAssignedOrganiser) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to view this registration"
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            registration
+        });
+
+    } catch (error) {
+        console.error("Get registration error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch registration"
+        });
+    }
+};
+
+
+// @desc    Verify or reject participant payment
+// @route   PATCH /api/registrations/:id/payment
+// @access  ADMIN only
+
+const updatePaymentStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body || {};
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid registration ID"
+            });
+        }
+
+        if (!["VERIFIED", "REJECTED"].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Payment status must be VERIFIED or REJECTED"
+            });
+        }
+
+        const registration = await Registration.findById(id);
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                message: "Registration not found"
+            });
+        }
+
+        if (registration.payment.status !== "PENDING") {
+            return res.status(409).json({
+                success: false,
+                message: "Only pending payments can be updated"
+            });
+        }
+
+        registration.payment.status = status;
+
+        if (status === "VERIFIED") {
+            registration.payment.verifiedBy = req.user._id;
+            registration.payment.verifiedAt = new Date();
+        } else {
+            registration.payment.verifiedBy = null;
+            registration.payment.verifiedAt = null;
+        }
+
+        await registration.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `Payment ${status.toLowerCase()} successfully`,
+            registration
+        });
+
+    } catch (error) {
+        console.error("Update payment status error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update payment status"
+        });
+    }
+};
 
 module.exports = {
-    registerForEvent
+    registerForEvent,
+    getMyRegistrations,
+    getEventParticipants,
+    getRegistrationById,
+    updatePaymentStatus
 };

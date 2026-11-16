@@ -4,7 +4,9 @@ const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 const {registerForEvent} = require("../controllers/registrationController");
 const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent } = require("../controllers/eventController");
-
+const {
+    getEventParticipants
+} = require("../controllers/registrationController");
 const router = express.Router();
 
 // Create event - ADMIN only
@@ -72,5 +74,10 @@ router.patch(
     completeEvent
 );
 
+router.get(
+    "/:id/participants"
+    , protect, 
+    getEventParticipants
+);
 
 module.exports = router;
