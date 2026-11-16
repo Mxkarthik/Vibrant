@@ -5,49 +5,24 @@ const mongoose = require("mongoose");
 // @route   POST /api/events
 // @access  ADMIN only
 
-const allowedFieldTypes = [
-    "TEXT",
-    "TEXTAREA",
-    "NUMBER",
-    "DROPDOWN",
-    "RADIO",
-    "CHECKBOX",
-    "DATE",
-    "URL"
-];
 
-if (!Array.isArray(registrationFields)) {
-    return res.status(400).json({
-        success: false,
-        message: "Registration fields must be an array"
-    });
-}
 
-for (const field of registrationFields) {
-    if (
-        !field.label ||
-        !field.fieldKey ||
-        !allowedFieldTypes.includes(field.fieldType)
-    ) {
-        return res.status(400).json({
-            success: false,
-            message: "Invalid registration field configuration"
-        });
-    }
-
-    if (
-        ["DROPDOWN", "RADIO", "CHECKBOX"].includes(field.fieldType) &&
-        (!Array.isArray(field.options) || field.options.length === 0)
-    ) {
-        return res.status(400).json({
-            success: false,
-            message: `${field.label} requires options`
-        });
-    }
-}
 
 const createEvent = async (req, res) => {
     try {
+        // 1. Validate request body
+        if (
+            !req.body ||
+            typeof req.body !== "object" ||
+            Array.isArray(req.body)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid request body"
+            });
+        }
+
+        // 2. Extract event details
         const {
             name,
             description,
@@ -60,7 +35,153 @@ const createEvent = async (req, res) => {
             registrationFields = []
         } = req.body;
 
-        // Create event
+        // 3. Validate registration configuration
+        if (
+            !registration ||
+            typeof registration !== "object" ||
+            Array.isArray(registration)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Registration configuration is required"
+            });
+        }
+
+        // 4. Validate registration fields
+        if (!Array.isArray(registrationFields)) {
+            return res.status(400).json({
+                success: false,
+                message: "Registration fields must be an array"
+            });
+        }
+
+        const allowedFieldTypes = [
+            "TEXT",
+            "TEXTAREA",
+            "NUMBER",
+            "DROPDOWN",
+            "RADIO",
+            "CHECKBOX",
+            "DATE",
+            "URL"
+        ];
+
+        const usedFieldKeys = new Set();
+
+        const validatedFields = [];
+
+        for (const field of registrationFields) {
+
+            // Ensure each field is an object
+            if (
+                !field ||
+                typeof field !== "object" ||
+                Array.isArray(field)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid registration field"
+                });
+            }
+
+            const label =
+                typeof field.label === "string"
+                    ? field.label.trim()
+                    : "";
+
+            const fieldKey =
+                typeof field.fieldKey === "string"
+                    ? field.fieldKey.trim()
+                    : "";
+
+            const fieldType = field.fieldType;
+
+            // Validate label and field key
+            if (!label || !fieldKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Field label and field key are required"
+                });
+            }
+
+            // Validate field key format
+            if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(fieldKey)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid field key: ${fieldKey}`
+                });
+            }
+
+            // Validate field type
+            if (!allowedFieldTypes.includes(fieldType)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Invalid field type for ${label}`
+                });
+            }
+
+            // Prevent duplicate field keys
+            const normalizedKey = fieldKey.toLowerCase();
+
+            if (usedFieldKeys.has(normalizedKey)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Duplicate field key: ${fieldKey}`
+                });
+            }
+
+            usedFieldKeys.add(normalizedKey);
+
+            // Validate options
+            let options = [];
+
+            if (
+                ["DROPDOWN", "RADIO", "CHECKBOX"].includes(fieldType)
+            ) {
+                if (
+                    !Array.isArray(field.options) ||
+                    field.options.length === 0
+                ) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `${label} requires options`
+                    });
+                }
+
+                options = field.options.map(option =>
+                    typeof option === "string" ? option.trim() : ""
+                );
+
+                if (options.some(option => !option)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid options for ${label}`
+                    });
+                }
+
+                if (new Set(options).size !== options.length) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Duplicate options in ${label}`
+                    });
+                }
+            }
+
+            // Build trusted field configuration
+            validatedFields.push({
+                fieldId: crypto.randomUUID(),
+                label,
+                fieldKey,
+                fieldType,
+                required: field.required === true,
+                options,
+                order: Number.isInteger(field.order)
+                    ? field.order
+                    : validatedFields.length
+            });
+        }
+
+        // 5. Create event
         const event = await Event.create({
             name,
             description,
@@ -74,22 +195,31 @@ const createEvent = async (req, res) => {
                 mode: registration.mode,
                 deadline: registration.deadline,
                 capacity: registration.capacity,
-                registrationFee: registration.registrationFee ?? 0,
-                minTeamSize: registration.mode === "TEAM"
-                    ? registration.minTeamSize
-                    : 1,
-                maxTeamSize: registration.mode === "TEAM"
-                    ? registration.maxTeamSize
-                    : 1,
 
-        // Always controlled by the backend
-        registeredParticipants: 0
-    },
-    registrationFields,
-    createdBy: req.user._id,
-    status: "PUBLISHED"
-});
+                registrationFee:
+                    registration.registrationFee ?? 0,
 
+                minTeamSize:
+                    registration.mode === "TEAM"
+                        ? registration.minTeamSize
+                        : 1,
+
+                maxTeamSize:
+                    registration.mode === "TEAM"
+                        ? registration.maxTeamSize
+                        : 1,
+
+                registeredParticipants: 0
+            },
+
+            registrationFields: validatedFields,
+
+            // Controlled by backend
+            createdBy: req.user._id,
+            status: "PUBLISHED"
+        });
+
+        // 6. Success response
         return res.status(201).json({
             success: true,
             message: "Event created successfully",
@@ -97,6 +227,7 @@ const createEvent = async (req, res) => {
         });
 
     } catch (error) {
+
         console.error("Create event error:", error);
 
         if (error.name === "ValidationError") {
@@ -106,6 +237,13 @@ const createEvent = async (req, res) => {
                 errors: Object.values(error.errors).map(
                     err => err.message
                 )
+            });
+        }
+
+        if (error.code === 11000) {
+            return res.status(409).json({
+                success: false,
+                message: "Duplicate data detected"
             });
         }
 
