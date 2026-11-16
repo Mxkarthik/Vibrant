@@ -1,47 +1,159 @@
 $kind: http-request
 name: http://localhost:5000/api/events
 description: ""
-url: http://localhost:5000/api/events
+url: http://localhost:5000/api/events/
 method: POST
-headers:
-  vibrant_token: "{{json_web_token_0n3n}}"
 body:
   type: json
-  content: "{\r
+  content: "\r
 
-    \  \"name\": \"VIBRANT AI Hackathon\",\r
+    {\r
 
-    \  \"description\": \"A competitive AI and ML hackathon.\",\r
+    \  \"name\": \"VIBRANT National Hackathon 2026\",\r
+
+    \  \"description\": \"A national-level hackathon where students collaborate to develop innovative solutions using technology.\",\r
 
     \  \"category\": \"TECHNICAL\",\r
 
-    \  \"poster\": \"https://example.com/poster.jpg\",\r
+    \  \"poster\": \"https://example.com/hackathon-poster.jpg\",\r
 
-    \  \"venue\": \"College Auditorium\",\r
+    \  \"venue\": \"DIET Main Auditorium, Anakapalle\",\r
 
-    \  \"startDate\": \"2027-01-20T09:00:00.000Z\",\r
+    \  \"startDate\": \"2026-12-20T09:00:00.000Z\",\r
 
-    \  \"endDate\": \"2027-01-21T18:00:00.000Z\",\r
+    \  \"endDate\": \"2026-12-21T09:00:00.000Z\",\r
 
     \  \"registration\": {\r
 
     \    \"mode\": \"TEAM\",\r
 
-    \    \"deadline\": \"2027-01-15T23:59:00.000Z\",\r
+    \    \"deadline\": \"2026-12-15T18:00:00.000Z\",\r
 
     \    \"capacity\": 100,\r
 
-    \    \"registrationFee\": 100,\r
+    \    \"registrationFee\": 300,\r
 
     \    \"minTeamSize\": 2,\r
 
     \    \"maxTeamSize\": 5\r
 
-    \  }\r
+    \  },\r
 
-    }"
+    \  \"registrationFields\": [\r
+
+    \    {\r
+
+    \      \"label\": \"GitHub Profile\",\r
+
+    \      \"fieldKey\": \"githubProfile\",\r
+
+    \      \"fieldType\": \"URL\",\r
+
+    \      \"required\": true,\r
+
+    \      \"order\": 1\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"label\": \"Technology Stack\",\r
+
+    \      \"fieldKey\": \"technologyStack\",\r
+
+    \      \"fieldType\": \"DROPDOWN\",\r
+
+    \      \"required\": true,\r
+
+    \      \"options\": [\r
+
+    \        \"MERN Stack\",\r
+
+    \        \"Python\",\r
+
+    \        \"Java\",\r
+
+    \        \"AI/ML\",\r
+
+    \        \"Other\"\r
+
+    \      ],\r
+
+    \      \"order\": 2\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"label\": \"Experience Level\",\r
+
+    \      \"fieldKey\": \"experienceLevel\",\r
+
+    \      \"fieldType\": \"RADIO\",\r
+
+    \      \"required\": true,\r
+
+    \      \"options\": [\r
+
+    \        \"Beginner\",\r
+
+    \        \"Intermediate\",\r
+
+    \        \"Advanced\"\r
+
+    \      ],\r
+
+    \      \"order\": 3\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"label\": \"Project Idea\",\r
+
+    \      \"fieldKey\": \"projectIdea\",\r
+
+    \      \"fieldType\": \"TEXTAREA\",\r
+
+    \      \"required\": true,\r
+
+    \      \"order\": 4\r
+
+    \    },\r
+
+    \    {\r
+
+    \      \"label\": \"Skills\",\r
+
+    \      \"fieldKey\": \"skills\",\r
+
+    \      \"fieldType\": \"CHECKBOX\",\r
+
+    \      \"required\": false,\r
+
+    \      \"options\": [\r
+
+    \        \"React\",\r
+
+    \        \"Node.js\",\r
+
+    \        \"Python\",\r
+
+    \        \"MongoDB\",\r
+
+    \        \"Machine Learning\"\r
+
+    \      ],\r
+
+    \      \"order\": 5\r
+
+    \    }\r
+
+    \  ]\r
+
+    }\r\n"
 auth:
-  type: oauth2
+  type: bearer
   credentials:
-    addTokenTo: header
+    token: "{{json_web_token_0n3n}}"
 order: 1794807734029

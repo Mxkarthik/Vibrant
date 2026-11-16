@@ -6,6 +6,16 @@ const protect = require("../middleware/authMiddleware");
 const router = express.Router();
 const authorizeRoles = require("../middleware/roleMiddleware");
 
+const frontendUrl = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173").replace(/\/$/, "");
+const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
+const authCookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production" || cookieSameSite === "none",
+    sameSite: cookieSameSite,
+    ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {}),
+    path: "/"
+};
+
 // ==========================================
 // 1. Start Google OAuth
 // ==========================================
@@ -27,7 +37,7 @@ router.get(
 
     passport.authenticate("google", {
         session: false,
-        failureRedirect: "/api/auth/failed"
+        failureRedirect: `${frontendUrl}/login?error=google_auth_failed`
     }),
 
     (req, res) => {
@@ -37,32 +47,16 @@ router.get(
 
             // Store JWT in HTTP-only cookie
             res.cookie("vibrant_token", token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === "production",
-                sameSite: "lax",
+                ...authCookieOptions,
                 maxAge: 60 * 60 * 1000,
-                path: "/"
             });
 
-            // Send user information without exposing JWT
-            return res.status(200).json({
-                success: true,
-                message: "Google authentication successful",
-                user: {
-                    id: req.user._id,
-                    name: req.user.name,
-                    email: req.user.email,
-                    role: req.user.role
-                }
-            });
+            return res.redirect(302, `${frontendUrl}/admin`);
 
         } catch (error) {
             console.error("JWT generation error:", error);
 
-            return res.status(500).json({
-                success: false,
-                message: "JWT generation failed"
-            });
+            return res.redirect(302, `${frontendUrl}/login?error=google_auth_failed`);
         }
     }
 );
@@ -72,9 +66,14 @@ router.get(
 // ==========================================
 
 router.get("/failed", (req, res) => {
-    return res.status(401).json({
-        success: false,
-        message: "Google authentication failed"
+    return res.redirect(302, `${frontendUrl}/login?error=google_auth_failed`);
+});
+
+router.post("/logout", (req, res) => {
+    res.clearCookie("vibrant_token", authCookieOptions);
+    return res.status(200).json({
+        success: true,
+        message: "Logged out successfully"
     });
 });
 

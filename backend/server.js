@@ -3,10 +3,30 @@ dns.setServers(["8.8.8.8", "8.8.4.4"]);
 
 const dotenv = require("dotenv");
 const express = require("express");
+const cors = require("cors");
 
 
 dotenv.config();
 const app = express();
+
+const configuredOrigins = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173")
+    .split(",")
+    .map(origin => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean);
+const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
+
+app.use(cors({
+    origin(origin, callback) {
+        // Requests without an Origin header (health checks and server-to-server) are allowed.
+        if (!origin || configuredOrigins.includes(origin.replace(/\/$/, ""))) {
+            return callback(null, true);
+        }
+        return callback(new Error("Origin is not allowed by CORS"));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept"]
+}));
 
 
 const session = require("express-session");
@@ -31,8 +51,9 @@ app.use(
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
-            secure: false, // Local development only
-            sameSite: "lax"
+            secure: process.env.NODE_ENV === "production" || cookieSameSite === "none",
+            sameSite: cookieSameSite,
+            ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {})
         }
     })
 );
