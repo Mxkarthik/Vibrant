@@ -15,6 +15,7 @@ const connectDB = require("./config/db");
 const cookieParser = require("cookie-parser");
 const eventRoutes = require("./routes/eventRoutes");
 const registrationRoutes = require("./routes/registrationRoutes");
+const teamRoutes = require("./routes/teamRoutes");
 
 app.use(express.json());
 app.use(cookieParser());
@@ -53,5 +54,6 @@ const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/registrations", registrationRoutes);
+app.use("/api/teams", teamRoutes);
 
 startServer();

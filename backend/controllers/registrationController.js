@@ -635,10 +635,111 @@ const updatePaymentStatus = async (req, res) => {
     }
 };
 
+
+const markAttendance = async (req, res) => {
+    try {
+        const { qrToken } = req.body;
+
+        if (!qrToken || typeof qrToken !== "string") {
+            return res.status(400).json({
+                success: false,
+                message: "QR token is required."
+            });
+        }
+
+        const registration = await Registration.findOne({ qrToken })
+            .populate("event", "name status")
+            .populate("team", "payment");
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                message: "Invalid QR code. Registration not found."
+            });
+        }
+
+        if (registration.status !== "REGISTERED") {
+            return res.status(400).json({
+                success: false,
+                message: "This registration has been cancelled."
+            });
+        }
+
+        if (registration.event.status !== "PUBLISHED") {
+            return res.status(400).json({
+                success: false,
+                message: "Attendance is unavailable for this event."
+            });
+        }
+
+        // Check shared team payment or individual payment
+        const paymentStatus = registration.team
+            ? registration.team.payment.status
+            : registration.payment.status;
+
+        if (!["VERIFIED", "NOT_REQUIRED"].includes(paymentStatus)) {
+            return res.status(400).json({
+                success: false,
+                message: "Payment must be verified before attendance."
+            });
+        }
+
+        if (registration.attendance.isPresent) {
+            return res.status(409).json({
+                success: false,
+                message: "Participant has already checked in.",
+                participant: registration.participantDetails.fullName,
+                checkedInAt: registration.attendance.checkedInAt
+            });
+        }
+
+        // Atomic update prevents simultaneous duplicate scans
+        const updatedRegistration = await Registration.findOneAndUpdate(
+            {
+                _id: registration._id,
+                status: "REGISTERED",
+                "attendance.isPresent": false
+            },
+            {
+                $set: {
+                    "attendance.isPresent": true,
+                    "attendance.checkedInAt": new Date()
+                }
+            },
+            { new: true }
+        );
+
+        if (!updatedRegistration) {
+            return res.status(409).json({
+                success: false,
+                message: "Participant has already checked in."
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Attendance marked successfully.",
+            participant: updatedRegistration.participantDetails,
+            event: registration.event.name,
+            checkedInAt: updatedRegistration.attendance.checkedInAt
+        });
+
+    } catch (error) {
+        console.error("Attendance error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to mark attendance."
+        });
+    }
+};
+
+
 module.exports = {
     registerForEvent,
     getMyRegistrations,
     getEventParticipants,
     getRegistrationById,
-    updatePaymentStatus
+    updatePaymentStatus,
+    markAttendance
 };

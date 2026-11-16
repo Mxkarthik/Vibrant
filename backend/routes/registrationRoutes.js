@@ -7,13 +7,21 @@ const authorizeRoles = require("../middleware/roleMiddleware");
 const {
     getMyRegistrations,
     getRegistrationById,
-    updatePaymentStatus
+    updatePaymentStatus,
+    markAttendance
 } = require("../controllers/registrationController");
 
 const router = express.Router();
 
 // Participant: view own registrations
 router.get("/my", protect, getMyRegistrations);
+
+router.post(
+    "/attendance",
+    protect,
+    authorizeRoles("ADMIN", "ORGANISER"),
+    markAttendance
+);
 
 // Admin: verify or reject payment
 router.patch(

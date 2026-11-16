@@ -381,4 +381,78 @@ const registerTeam = async (req, res) => {
     }
 };
 
-module.exports = { registerTeam };
+// Admin: verify or reject shared team payment
+const updateTeamPaymentStatus = async (req, res) => {
+    try {
+        const { status } = req.body;
+
+        if (!["VERIFIED", "REJECTED"].includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Payment status must be VERIFIED or REJECTED."
+            });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid team ID."
+            });
+        }
+
+        const team = await Team.findById(req.params.id);
+
+        if (!team) {
+            return res.status(404).json({
+                success: false,
+                message: "Team not found."
+            });
+        }
+
+        if (team.status !== "REGISTERED") {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot update payment for a cancelled team."
+            });
+        }
+
+        if (team.payment.status !== "PENDING") {
+            return res.status(400).json({
+                success: false,
+                message: `Payment is already ${team.payment.status}.`
+            });
+        }
+
+        team.payment.status = status;
+        team.payment.verifiedBy =
+            status === "VERIFIED" ? req.user._id : null;
+        team.payment.verifiedAt =
+            status === "VERIFIED" ? new Date() : null;
+
+        await team.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `Team payment ${status.toLowerCase()} successfully.`,
+            team: {
+                id: team._id,
+                teamName: team.teamName,
+                memberCount: team.memberCount,
+                payment: team.payment
+            }
+        });
+
+    } catch (error) {
+        console.error("Team payment verification error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update team payment."
+        });
+    }
+};
+
+module.exports = {
+    registerTeam,
+    updateTeamPaymentStatus
+};
