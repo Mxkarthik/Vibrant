@@ -814,6 +814,165 @@ const getEventAttendanceReport = async (req, res) => {
     }
 };
 
+
+
+const ExcelJS = require("exceljs");
+
+const exportEventParticipants = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID."
+            });
+        }
+
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found."
+            });
+        }
+
+        // Authorization: Admin or assigned organiser
+        const isAdmin = req.user.role === "ADMIN";
+
+        const isAssignedOrganiser = (event.organizers || []).some(
+            organiser => organiser.toString() === req.user._id.toString()
+        );
+
+        if (!isAdmin && !isAssignedOrganiser) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to export participants."
+            });
+        }
+
+        // Fetch all active registrations
+        const registrations = await Registration.find({
+            event: id,
+            status: "REGISTERED"
+        })
+            .populate("user", "name email")
+            .populate("team", "teamName payment")
+            .sort({ createdAt: 1 });
+
+        const workbook = new ExcelJS.Workbook();
+
+        workbook.creator = "VIBRANT";
+        workbook.created = new Date();
+
+        const worksheet = workbook.addWorksheet("Participants");
+
+        worksheet.columns = [
+            { header: "S.No", key: "serialNumber", width: 10 },
+            { header: "Participant Name", key: "name", width: 25 },
+            { header: "Email", key: "email", width: 30 },
+            { header: "Mobile Number", key: "mobile", width: 18 },
+            { header: "College", key: "college", width: 35 },
+            { header: "Department", key: "department", width: 22 },
+            { header: "Year", key: "year", width: 15 },
+            { header: "Section", key: "section", width: 12 },
+            { header: "Roll Number", key: "rollNumber", width: 18 },
+            { header: "Event Name", key: "event", width: 30 },
+            { header: "Team Name", key: "teamName", width: 22 },
+            { header: "Registration Type", key: "type", width: 20 },
+            { header: "Payment Status", key: "payment", width: 18 },
+            { header: "Attendance", key: "attendance", width: 15 },
+            { header: "Check-in Time", key: "checkIn", width: 25 }
+        ];
+
+        registrations.forEach((registration, index) => {
+            const details = registration.participantDetails;
+            const isTeamRegistration = Boolean(registration.team);
+
+            const paymentStatus = isTeamRegistration
+                ? registration.team.payment.status
+                : registration.payment.status;
+
+            worksheet.addRow({
+                serialNumber: index + 1,
+                name: details.fullName,
+                email: registration.user?.email || "Not provided",
+                mobile: details.mobileNumber,
+                college: details.collegeName,
+                department: details.department,
+                year: details.yearOfStudy,
+                section: details.section,
+                rollNumber: details.rollNumber,
+                event: event.name,
+                teamName: registration.team?.teamName || "Individual",
+                type: isTeamRegistration ? "TEAM" : "INDIVIDUAL",
+                payment: paymentStatus,
+                attendance: registration.attendance.isPresent
+                    ? "PRESENT"
+                    : "ABSENT",
+                checkIn: registration.attendance.checkedInAt || "Not checked in"
+            });
+        });
+
+        // Format header
+        const headerRow = worksheet.getRow(1);
+
+        headerRow.font = {
+            bold: true,
+            color: { argb: "FFFFFFFF" }
+        };
+
+        headerRow.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF172B3A" }
+        };
+
+        headerRow.alignment = {
+            vertical: "middle",
+            horizontal: "center"
+        };
+
+        headerRow.height = 25;
+
+        worksheet.views = [
+            { state: "frozen", ySplit: 1 }
+        ];
+
+        worksheet.autoFilter = {
+            from: "A1",
+            to: "O1"
+        };
+
+        // Generate downloadable Excel file
+        const fileName = `VIBRANT_${event.name.replace(/[^a-z0-9]/gi, "_")}_Participants.xlsx`;
+
+        res.setHeader(
+            "Content-Type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="${fileName}"`
+        );
+
+        await workbook.xlsx.write(res);
+        res.end();
+
+    } catch (error) {
+        console.error("Excel export error:", error);
+
+        if (!res.headersSent) {
+            return res.status(500).json({
+                success: false,
+                message: "Failed to export event participants."
+            });
+        }
+    }
+};
+
 module.exports = {
     registerForEvent,
     getMyRegistrations,
@@ -821,5 +980,6 @@ module.exports = {
     getRegistrationById,
     updatePaymentStatus,
     markAttendance,
-    getEventAttendanceReport
+    getEventAttendanceReport,
+    exportEventParticipants
 };
