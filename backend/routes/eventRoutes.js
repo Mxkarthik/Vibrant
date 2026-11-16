@@ -8,6 +8,8 @@ const {
     getEventParticipants
 } = require("../controllers/registrationController");
 const router = express.Router();
+const { registerTeam } = require("../controllers/teamRegistrationController");
+
 
 // Create event - ADMIN only
 router.post(
@@ -17,11 +19,7 @@ router.post(
     createEvent
 );
 
-router.post(
-    "/:id/register", 
-    protect, 
-    registerForEvent
-);
+router.post("/:id/register", protect, registerForEvent);
 
 router.get(
     "/filtered",
@@ -74,10 +72,9 @@ router.patch(
     completeEvent
 );
 
-router.get(
-    "/:id/participants"
-    , protect, 
-    getEventParticipants
-);
+router.post("/:id/register-team", protect, registerTeam);
+
+router.get("/:id/participants", protect, getEventParticipants);
+
 
 module.exports = router;
