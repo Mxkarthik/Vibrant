@@ -1,0 +1,27 @@
+.event-poster-field { grid-column: span 2; }
+.event-poster-field > span { display: flex; align-items: center; gap: 7px; color: #526773; font-size: 11px; font-weight: 600; }
+.event-poster-field > span small { color: #8998a2; font-size: 11px; font-weight: 400; }
+.poster-preview { display: flex; align-items: center; gap: 12px; min-height: 88px; padding: 10px; border: 1px solid var(--border); border-radius: 7px; background: #fff; }
+.poster-preview img { width: 72px; height: 68px; flex: 0 0 72px; border: 1px solid #e8edf0; border-radius: 5px; object-fit: cover; background: #f5f7fa; }
+.poster-preview > div { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.poster-preview > div strong { color: #344b59; font-size: 12px; font-weight: 600; }
+.poster-preview > div small { overflow-wrap: anywhere; color: #778894; font-size: 11px; }
+.poster-upload-dropzone { position: relative; display: flex; min-height: 94px; align-items: center; justify-content: center; flex-direction: column; gap: 5px; padding: 14px; border: 1px dashed #b7c5ce; border-radius: 7px; background: #fbfcfd; color: #607b8d; cursor: pointer; text-align: center; transition: border-color .15s, background .15s; }
+.poster-upload-dropzone:hover, .poster-upload-dropzone.is-dragging { border-color: #63839a; background: #f3f7f9; }
+.poster-upload-dropzone.is-disabled { cursor: wait; opacity: .65; }
+.poster-upload-dropzone > strong { color: #3c5667; font-size: 12px; font-weight: 600; }
+.poster-upload-dropzone > small { color: #83929c; font-size: 11px; font-weight: 400; }
+.poster-upload-dropzone input.sr-only { position: absolute; width: 1px; height: 1px; min-height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.poster-upload-dropzone:focus-within { outline: 3px solid #8caec2; outline-offset: 2px; }
+.poster-upload-progress { display: flex; align-items: center; gap: 10px; }
+.poster-upload-progress > span { height: 6px; flex: 1; overflow: hidden; border-radius: 6px; background: #e8edf0; }
+.poster-upload-progress i { display: block; height: 100%; border-radius: inherit; background: #315b79; transition: width .15s ease; }
+.poster-upload-progress small { min-width: 95px; color: #657b89; font-size: 11px; text-align: right; }
+.poster-upload-error { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0; color: #a3453d; font-size: 12px; font-weight: 400; line-height: 1.45; }
+.poster-upload-error .ui-button { min-height: 32px; padding-inline: 8px; color: #315b79; }
+@media (max-width: 520px) {
+  .event-poster-field { grid-column: auto; }
+  .poster-preview { align-items: flex-start; flex-wrap: wrap; }
+  .poster-preview > div { flex-basis: calc(100% - 90px); }
+  .poster-preview > .ui-button { margin-left: auto; }
+}

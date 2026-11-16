@@ -41,9 +41,6 @@ const adminRoutes = require("./routes/adminRoutes");
 app.use(express.json());
 app.use(cookieParser());
 
-
-app.use(express.json());
-
 app.use(
     session({
         secret: process.env.SESSION_SECRET,
@@ -78,5 +75,12 @@ app.use("/api/events", eventRoutes);
 app.use("/api/registrations", registrationRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/admin", adminRoutes);
+
+app.use((error, req, res, next) => {
+    if (error.message === "Origin is not allowed by CORS") {
+        return res.status(403).json({ success: false, message: "Origin is not allowed" });
+    }
+    return next(error);
+});
 
 startServer();

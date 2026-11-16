@@ -1,14 +1,17 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Image, Save } from "lucide-react";
 import type { CreateEventPayload, EventCategory, EventRecord, RegistrationField, RegistrationMode } from "../../api/events";
-import { createEvent, getApiErrorMessage, updateEvent } from "../../api/events";
+import { createEvent, getApiErrorMessage, updateEvent, uploadEventPoster } from "../../api/events";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import PageHeader from "../admin/PageHeader";
 import RegistrationFieldBuilder from "./RegistrationFieldBuilder";
+import "./eventPoster.css";
 
 const categories: EventCategory[] = ["TECHNICAL", "CULTURAL", "SPORTS", "WORKSHOP", "COMPETITION"];
+const MAX_POSTER_SIZE = 5 * 1024 * 1024;
+const ALLOWED_POSTER_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const localValue = (value?: string) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
 
 interface FormValues {
@@ -35,14 +38,85 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posterFailed, setPosterFailed] = useState(false);
+  const [posterPreview, setPosterPreview] = useState(event?.poster ?? "");
+  const [posterUploadError, setPosterUploadError] = useState<string | null>(null);
+  const [posterUploading, setPosterUploading] = useState(false);
+  const [posterProgress, setPosterProgress] = useState(0);
+  const [posterFile, setPosterFile] = useState<File | null>(null);
+  const [posterDragging, setPosterDragging] = useState(false);
+  const posterInput = useRef<HTMLInputElement>(null);
+  const localPosterPreview = useRef<string | null>(null);
   const editing = mode === "edit";
 
   useEffect(() => {
+    if (localPosterPreview.current) URL.revokeObjectURL(localPosterPreview.current);
+    localPosterPreview.current = null;
     setValues(valuesFromEvent(event));
     setFields(event?.registrationFields ?? []);
+    setPosterPreview(event?.poster ?? "");
+    setPosterFile(null);
+    setPosterUploadError(null);
+    setPosterFailed(false);
   }, [event]);
 
+  useEffect(() => () => {
+    if (localPosterPreview.current) URL.revokeObjectURL(localPosterPreview.current);
+  }, []);
+
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues(current => ({ ...current, [key]: value }));
+  const uploadPoster = async (file: File) => {
+    if (!ALLOWED_POSTER_TYPES.has(file.type)) {
+      setPosterUploadError("Choose a JPG, PNG or WEBP image.");
+      return;
+    }
+    if (file.size > MAX_POSTER_SIZE) {
+      setPosterUploadError("Poster images must be 5 MB or smaller.");
+      return;
+    }
+
+    if (localPosterPreview.current) URL.revokeObjectURL(localPosterPreview.current);
+    const previewUrl = URL.createObjectURL(file);
+    localPosterPreview.current = previewUrl;
+    setPosterFile(file);
+    setPosterPreview(previewUrl);
+    setPosterFailed(false);
+    setPosterUploadError(null);
+    setPosterProgress(0);
+    setPosterUploading(true);
+    try {
+      const result = await uploadEventPoster(file, setPosterProgress);
+      set("poster", result.secureUrl);
+      setPosterPreview(result.secureUrl);
+      setPosterFile(null);
+      URL.revokeObjectURL(previewUrl);
+      localPosterPreview.current = null;
+    } catch (requestError) {
+      setPosterUploadError(getApiErrorMessage(requestError, "The poster could not be uploaded. Please try again."));
+    } finally {
+      setPosterUploading(false);
+    }
+  };
+
+  const removePoster = () => {
+    if (localPosterPreview.current) URL.revokeObjectURL(localPosterPreview.current);
+    localPosterPreview.current = null;
+    set("poster", "");
+    setPosterPreview("");
+    setPosterFile(null);
+    setPosterUploadError(null);
+    setPosterFailed(false);
+    if (posterInput.current) posterInput.current.value = "";
+  };
+
+  const discardPosterReplacement = () => {
+    if (localPosterPreview.current) URL.revokeObjectURL(localPosterPreview.current);
+    localPosterPreview.current = null;
+    setPosterFile(null);
+    setPosterPreview(values.poster);
+    setPosterUploadError(null);
+    setPosterFailed(false);
+    if (posterInput.current) posterInput.current.value = "";
+  };
   const fieldError = () => {
     const keys = fields.map(field => field.fieldKey.trim().toLowerCase());
     if (keys.some(key => !/^[a-z][a-z0-9_]*$/.test(key))) return "Each field key must begin with a letter and contain only letters, numbers, and underscores.";
@@ -95,8 +169,6 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
   };
 
   const registrationCount = event?.registration.registeredParticipants ?? 0;
-  const posterUrl = values.poster.trim();
-
   return <>
     <PageHeader title={editing ? "Edit event" : "Create event"} description={editing ? "Update the event details supported by the current system." : "Set up the event, registration rules and participant fields."} action={<Button variant="quiet" icon={<ArrowLeft size={15} />} onClick={() => navigate(editing && event ? `/admin/events/${event._id}` : "/admin/events")}>Back</Button>} />
     {editing && <div className="event-edit-note"><AlertCircle size={15} /><span>Registration mode, team sizes and custom registration fields cannot be changed after event creation. {registrationCount ? `Capacity cannot be set below ${registrationCount} existing registrations.` : ""}</span></div>}
@@ -109,8 +181,17 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
           <label className="form-field span-two"><span>Description <b>*</b></span><textarea value={values.description} onChange={e => set("description", e.target.value)} required rows={4} placeholder="Describe the event and what participants can expect." /></label>
           <label className="form-field"><span>Category <b>*</b></span><select value={values.category} onChange={e => set("category", e.target.value as EventCategory)} required><option value="" disabled>Select category</option>{categories.map(category => <option key={category} value={category}>{category.charAt(0) + category.slice(1).toLowerCase()}</option>)}</select></label>
           <label className="form-field"><span>Venue <b>*</b></span><input value={values.venue} onChange={e => set("venue", e.target.value)} required placeholder="Building, room or location" /></label>
-          <label className="form-field span-two"><span>Poster URL <small>Optional</small></span><input type="url" value={values.poster} onChange={e => { set("poster", e.target.value); setPosterFailed(false); }} placeholder="https://example.com/event-poster.jpg" /><small>Use a publicly accessible image URL.</small></label>
-          {posterUrl && !posterFailed && <div className="poster-preview span-two"><img src={posterUrl} alt="Event poster preview" onError={() => setPosterFailed(true)} /><span><Image size={14} /> Poster preview</span></div>}
+          <div className="form-field span-two event-poster-field">
+            <span>Event poster <small>Optional</small></span>
+            {posterPreview && !posterFailed && <div className="poster-preview"><img src={posterPreview} alt="Event poster preview" onError={() => setPosterFailed(true)} /><div><strong>{posterUploading ? "Uploading poster…" : posterFile ? "Selected poster" : "Current poster"}</strong><small>{posterUploading ? `${posterProgress}% uploaded` : posterFile?.name || "Visible on the event listing and details page"}</small></div><Button type="button" variant="quiet" onClick={removePoster} disabled={posterUploading || submitting} aria-label="Remove event poster">Remove</Button></div>}
+            {posterFailed && <div className="poster-upload-error" role="alert"><span>The poster preview could not be loaded. Select a replacement image or remove it.</span><Button type="button" variant="quiet" onClick={removePoster} disabled={posterUploading || submitting}>Remove poster</Button></div>}
+            <label className={`poster-upload-dropzone${posterDragging ? " is-dragging" : ""}${posterUploading || submitting ? " is-disabled" : ""}`} onDragOver={event => { event.preventDefault(); if (!posterUploading && !submitting) setPosterDragging(true); }} onDragLeave={() => setPosterDragging(false)} onDrop={event => { event.preventDefault(); setPosterDragging(false); if (!posterUploading && !submitting && event.dataTransfer.files[0]) void uploadPoster(event.dataTransfer.files[0]); }}>
+              <input ref={posterInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose event poster image" disabled={posterUploading || submitting} onChange={event => { const file = event.currentTarget.files?.[0]; if (file) void uploadPoster(file); event.currentTarget.value = ""; }} />
+              <Image size={18} /><strong>{posterPreview ? "Choose a replacement or drop it here" : "Choose an image or drop it here"}</strong><small>JPG, PNG or WEBP · up to 5 MB</small>
+            </label>
+            {posterUploading && <div className="poster-upload-progress" role="status"><span><i style={{ width: `${posterProgress}%` }} /></span><small>{posterProgress ? `${posterProgress}%` : "Preparing upload…"}</small></div>}
+            {posterUploadError && <div className="poster-upload-error" role="alert"><span>{posterUploadError}{editing && values.poster ? " The currently saved poster will be kept unless you remove it." : ""}</span>{posterFile && !posterUploading && <Button type="button" variant="quiet" onClick={() => void uploadPoster(posterFile)} disabled={submitting}>Retry upload</Button>}{posterFile && !posterUploading && values.poster && <Button type="button" variant="quiet" onClick={discardPosterReplacement} disabled={submitting}>Discard replacement</Button>}</div>}
+          </div>
         </div>
       </Card>
 
@@ -141,7 +222,7 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
         <RegistrationFieldBuilder fields={fields} onChange={setFields} readOnly={editing} />
       </Card>
 
-      <div className="event-form-footer"><span><b>*</b> Required fields. New events are published when created.</span><div><Button type="button" variant="secondary" onClick={() => navigate(editing && event ? `/admin/events/${event._id}` : "/admin/events")} disabled={submitting}>Discard</Button><Button type="submit" variant="primary" icon={<Save size={15} />} disabled={submitting}>{submitting ? "Saving…" : editing ? "Save changes" : "Create event"}</Button></div></div>
+      <div className="event-form-footer"><span><b>*</b> Required fields. New events are published when created.</span><div><Button type="button" variant="secondary" onClick={() => navigate(editing && event ? `/admin/events/${event._id}` : "/admin/events")} disabled={submitting || posterUploading}>Discard</Button><Button type="submit" variant="primary" icon={<Save size={15} />} disabled={submitting || posterUploading}>{posterUploading ? "Uploading poster…" : submitting ? "Saving…" : editing ? "Save changes" : "Create event"}</Button></div></div>
     </form>
   </>;
 }

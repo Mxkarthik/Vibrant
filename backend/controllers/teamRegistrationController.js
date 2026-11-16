@@ -439,7 +439,12 @@ const updateTeamPaymentStatus = async (req, res) => {
                 id: team._id,
                 teamName: team.teamName,
                 memberCount: team.memberCount,
-                payment: team.payment
+                status: team.status,
+                payment: {
+                    method: team.payment.method,
+                    status: team.payment.status,
+                    verifiedAt: team.payment.verifiedAt
+                }
             }
         });
 

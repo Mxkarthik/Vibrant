@@ -28,7 +28,7 @@ const getIndividualPayments = async (req, res) => {
         const query = validatePaymentQueueQuery(req.query);
         if (query.error) return res.status(400).json({ success: false, message: query.error });
 
-        const filter = { team: null };
+        const filter = { team: null, status: "REGISTERED" };
         if (query.status !== "ALL") filter["payment.status"] = query.status;
         if (query.search) {
             const pattern = { $regex: escapedSearch(query.search), $options: "i" };
@@ -75,7 +75,7 @@ const getTeamPayments = async (req, res) => {
         const query = validatePaymentQueueQuery(req.query);
         if (query.error) return res.status(400).json({ success: false, message: query.error });
 
-        const filter = {};
+        const filter = { status: "REGISTERED" };
         if (query.status !== "ALL") filter["payment.status"] = query.status;
         if (query.search) {
             const pattern = { $regex: escapedSearch(query.search), $options: "i" };
@@ -497,7 +497,7 @@ const getDashboard = async (req, res) => {
                 { $project: { _id: 0 } }
             ]),
             Registration.aggregate([
-                { $match: { team: null } },
+                { $match: { team: null, status: "REGISTERED" } },
                 {
                     $group: {
                         _id: null,
@@ -508,6 +508,7 @@ const getDashboard = async (req, res) => {
                 { $project: { _id: 0 } }
             ]),
             Team.aggregate([
+                { $match: { status: "REGISTERED" } },
                 {
                     $group: {
                         _id: null,

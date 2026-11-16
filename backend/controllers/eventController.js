@@ -2,6 +2,31 @@
 const Event = require("../models/Event");
 const mongoose = require("mongoose");
 const crypto = require("node:crypto");
+const uploadToCloudinary = require("../utils/uploadToCloudinary");
+
+const uploadEventPoster = async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) {
+            return res.status(400).json({ success: false, message: "Select a JPG, PNG or WEBP poster image" });
+        }
+
+        const bytes = file.buffer;
+        const isJpeg = file.mimetype === "image/jpeg" && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+        const isPng = file.mimetype === "image/png" && bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        const isWebp = file.mimetype === "image/webp" && bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
+        if (!isJpeg && !isPng && !isWebp) {
+            return res.status(400).json({ success: false, message: "The selected file is not a valid JPG, PNG or WEBP image" });
+        }
+
+        const uploaded = await uploadToCloudinary(bytes, "vibrant/event-posters");
+        return res.status(201).json({ success: true, secureUrl: uploaded.secureUrl });
+    } catch (error) {
+        console.error("Event poster upload error:", error.message);
+        return res.status(502).json({ success: false, message: "The event poster could not be uploaded. Please try again." });
+    }
+};
+
 // @desc    Create a new event
 // @route   POST /api/events
 // @access  ADMIN only
@@ -316,11 +341,11 @@ const getEventById = async (req, res) => {
             });
         }
 
-        // Participants can only view published events.
-        // Admins can also view cancelled or completed events.
+        // Participants can only view published events. Admins and global
+        // organisers can also view cancelled or completed events.
         if (
             event.status !== "PUBLISHED" &&
-            req.user.role !== "ADMIN"
+            !["ADMIN", "ORGANISER"].includes(req.user.role)
         ) {
             return res.status(404).json({
                 success: false,
@@ -662,5 +687,5 @@ const completeEvent = async (req, res) => {
 
 
 module.exports = {
-    createEvent,getAllEvents ,getAllEventsWithFilters, getEventById , updateEvent , cancelEvent , completeEvent
+    createEvent, getAllEvents, getAllEventsWithFilters, getEventById, updateEvent, cancelEvent, completeEvent, uploadEventPoster
 };

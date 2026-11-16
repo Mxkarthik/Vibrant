@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import { X } from "lucide-react";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 
 interface CertificatePreviewProps {
   participantName: string;
@@ -11,14 +11,10 @@ interface CertificatePreviewProps {
 }
 
 export default function CertificatePreview({ participantName, eventName, eventStartDate, certificateId, issuedAt, onClose }: CertificatePreviewProps) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const dialogRef = useAccessibleDialog(onClose);
 
   return <div className="certificate-preview-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="certificate-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="certificate-preview-title">
+    <section ref={dialogRef} className="certificate-preview-dialog" role="dialog" aria-modal="true" aria-labelledby="certificate-preview-title">
       <header><div><p>CERTIFICATE PREVIEW</p><h2 id="certificate-preview-title">{participantName}</h2></div><button onClick={onClose} aria-label="Close certificate preview"><X size={18} /></button></header>
       <article className="certificate-paper">
         <div className="certificate-paper-inner">

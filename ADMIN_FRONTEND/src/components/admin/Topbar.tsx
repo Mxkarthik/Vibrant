@@ -1,4 +1,4 @@
-import { Bell, ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronRight, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
@@ -15,14 +15,18 @@ export default function Topbar({ collapsed, onToggleSidebar, onOpenMobile }: Top
   const location = useLocation();
   const navigate = useNavigate();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const page = adminNavigation.find(item => item.to === location.pathname)
     ?? (location.pathname.startsWith("/admin/events/") ? adminNavigation.find(item => item.to === "/admin/events") : undefined);
 
   const signOut = async () => {
     setLoggingOut(true);
+    setLogoutError(null);
     try {
       await logout();
       navigate("/login", { replace: true });
+    } catch {
+      setLogoutError("Sign out failed. Your session is still active.");
     } finally {
       setLoggingOut(false);
     }
@@ -37,13 +41,12 @@ export default function Topbar({ collapsed, onToggleSidebar, onOpenMobile }: Top
       <div className="topbar-breadcrumb"><span>Admin</span><ChevronRight size={14} /><strong>{page?.label ?? "Overview"}</strong></div>
     </div>
     <div className="topbar-actions">
-      <button className="icon-button notification-button" aria-label="Notifications (no notifications configured)" title="Notifications"><Bell size={18} /><span className="notification-dot" /></button>
-      <div className="topbar-divider" />
       <div className="admin-identity">
         {user?.profilePicture ? <img src={user.profilePicture} className="admin-avatar" alt="" referrerPolicy="no-referrer" /> : <span className="admin-avatar avatar-fallback">{user?.name?.trim().charAt(0).toUpperCase() || "A"}</span>}
-        <span className="admin-identity-copy"><strong>{user?.name ?? "Administrator"}</strong><small>Administrator</small></span>
+        <span className="admin-identity-copy"><strong>{user?.name ?? "Administrator"}</strong><small>{user?.role ? user.role.charAt(0) + user.role.slice(1).toLowerCase() : "Administrator"}</small></span>
       </div>
       <button className="icon-button logout-button" onClick={() => void signOut()} disabled={loggingOut} aria-label="Sign out" title={loggingOut ? "Signing out…" : "Sign out"}><LogOut size={17} /></button>
     </div>
+    {logoutError && <p className="topbar-logout-error" role="alert">{logoutError}</p>}
   </header>;
 }

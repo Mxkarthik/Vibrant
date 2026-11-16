@@ -2,18 +2,38 @@
 const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
+const upload = require("../middleware/uploadMiddleware");
 const {registerForEvent} = require("../controllers/registrationController");
-const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent } = require("../controllers/eventController");
+const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent, uploadEventPoster } = require("../controllers/eventController");
 const {
     getEventParticipants,getEventAttendanceReport,exportEventParticipants
 } = require("../controllers/registrationController");
 const router = express.Router();
+const parseEventPoster = (req, res, next) => {
+    upload.single("poster")(req, res, error => {
+        if (!error) return next();
+        const message = error.code === "LIMIT_FILE_SIZE"
+            ? "Poster images must be 5 MB or smaller"
+            : error.message === "Only JPG, PNG and WEBP images are allowed"
+                ? error.message
+                : "The poster image could not be read";
+        return res.status(400).json({ success: false, message });
+    });
+};
 const { registerTeam } = require("../controllers/teamRegistrationController");
 const {
     issueEventCertificates
 } = require("../controllers/registrationController");
 
 // Create event - ADMIN only
+router.post(
+    "/poster",
+    protect,
+    authorizeRoles("ADMIN"),
+    parseEventPoster,
+    uploadEventPoster
+);
+
 router.post(
     "/",
     protect,
@@ -50,19 +70,19 @@ router.get(
     getAllEvents,
 );
 
-// Get event by ID
-router.get(
-    "/:id",
-    protect,
-    getEventById
-);
-
 router.get("/test", (req, res) => {
     res.status(200).json({
         success: true,
         message: "Event routes are working!"
     });
 });
+
+// Get event by ID
+router.get(
+    "/:id",
+    protect,
+    getEventById
+);
 
 // Update event - ADMIN only
 router.patch(

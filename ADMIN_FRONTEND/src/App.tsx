@@ -12,6 +12,7 @@ import PaymentsPage from "./pages/admin/PaymentsPage";
 import OrganisersPage from "./pages/admin/OrganisersPage";
 import AttendancePage from "./pages/admin/AttendancePage";
 import CertificatesPage from "./pages/admin/CertificatesPage";
+import AccountSettingsPage from "./pages/admin/AccountSettingsPage";
 
 export default function App() {
   return <Routes>
@@ -27,7 +28,7 @@ export default function App() {
       <Route path="/admin/organisers" element={<OrganisersPage />} />
       <Route path="/admin/attendance" element={<AttendancePage />} />
       <Route path="/admin/certificates" element={<CertificatesPage />} />
-      <Route path="/admin/settings" element={<AdminSectionPage />} />
+      <Route path="/admin/settings" element={<AccountSettingsPage />} />
     </Route></Route>
     <Route path="/unauthorized" element={<UnauthorizedPage />} />
     <Route path="*" element={<NotFoundPage />} />

@@ -433,7 +433,7 @@ const getEventParticipants = async (req, res) => {
         }
 
         const event = await Event.findById(id)
-            .select("name organizers createdBy");
+            .select("name");
 
         if (!event) {
             return res.status(404).json({
@@ -444,11 +444,9 @@ const getEventParticipants = async (req, res) => {
 
         const isAdmin = req.user.role === "ADMIN";
 
-        const isAssignedOrganiser = event.organizers.some(
-            organiserId => organiserId.toString() === req.user._id.toString()
-        );
+        const isOrganiser = req.user.role === "ORGANISER";
 
-        if (!isAdmin && !isAssignedOrganiser) {
+        if (!isAdmin && !isOrganiser) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to view these participants"
@@ -536,6 +534,7 @@ const getEventParticipants = async (req, res) => {
 
         const [registrations, total] = await Promise.all([
             Registration.find(filter)
+                .select("-qrToken")
                 .populate("user", "name email")
                 .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } })
                 .sort({ createdAt: -1 })
@@ -574,7 +573,7 @@ const getEventParticipants = async (req, res) => {
 
 // @desc    Get one registration
 // @route   GET /api/registrations/:id
-// @access  Owner, ADMIN or assigned ORGANISER
+// @access  Owner, ADMIN or global ORGANISER
 
 const getRegistrationById = async (req, res) => {
     try {
@@ -588,8 +587,9 @@ const getRegistrationById = async (req, res) => {
         }
 
         const registration = await Registration.findById(id)
+            .select("-qrToken")
             .populate("user", "name email")
-            .populate("event", "name category venue startDate endDate organizers")
+            .populate("event", "name category venue startDate endDate")
             .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } });
 
         if (!registration) {
@@ -604,13 +604,9 @@ const getRegistrationById = async (req, res) => {
 
         const isAdmin = req.user.role === "ADMIN";
 
-        const isAssignedOrganiser =
-            registration.event.organizers.some(
-                organiserId =>
-                    organiserId.toString() === req.user._id.toString()
-            );
+        const isOrganiser = req.user.role === "ORGANISER";
 
-        if (!isOwner && !isAdmin && !isAssignedOrganiser) {
+        if (!isOwner && !isAdmin && !isOrganiser) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to view this registration"
@@ -618,7 +614,7 @@ const getRegistrationById = async (req, res) => {
         }
 
         let teamMembers;
-        if (registration.team && (isAdmin || isAssignedOrganiser)) {
+        if (registration.team && (isAdmin || isOrganiser)) {
             const members = await Registration.find({ team: registration.team._id, status: "REGISTERED" })
                 .select("participantDetails.fullName user isTeamLeader")
                 .populate("user", "name email")
@@ -679,6 +675,13 @@ const updatePaymentStatus = async (req, res) => {
             });
         }
 
+        if (registration.status !== "REGISTERED") {
+            return res.status(409).json({
+                success: false,
+                message: "Payments for cancelled registrations cannot be updated"
+            });
+        }
+
         if (registration.payment.status !== "PENDING") {
             return res.status(409).json({
                 success: false,
@@ -701,7 +704,15 @@ const updatePaymentStatus = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: `Payment ${status.toLowerCase()} successfully`,
-            registration
+            registration: {
+                id: registration._id,
+                status: registration.status,
+                payment: {
+                    method: registration.payment.method,
+                    status: registration.payment.status,
+                    verifiedAt: registration.payment.verifiedAt
+                }
+            }
         });
 
     } catch (error) {
@@ -798,7 +809,7 @@ const markAttendance = async (req, res) => {
         return res.status(200).json({
             success: true,
             message: "Attendance marked successfully.",
-            participant: updatedRegistration.participantDetails,
+            participant: { fullName: updatedRegistration.participantDetails.fullName },
             event: registration.event.name,
             checkedInAt: updatedRegistration.attendance.checkedInAt
         });
@@ -833,13 +844,11 @@ const getEventAttendanceReport = async (req, res) => {
             });
         }
 
-        // Only admin or assigned organiser can access the report
+        // Organisers are global platform users, not event assignees.
         const isAdmin = req.user.role === "ADMIN";
-        const isAssignedOrganiser = event.organizers.some(
-            organiser => organiser.toString() === req.user._id.toString()
-        );
+        const isOrganiser = req.user.role === "ORGANISER";
 
-        if (!isAdmin && !isAssignedOrganiser) {
+        if (!isAdmin && !isOrganiser) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to view this report."
@@ -917,14 +926,11 @@ const exportEventParticipants = async (req, res) => {
             });
         }
 
-        // Authorization: Admin or assigned organiser
+        // Organisers are global platform users, not event assignees.
         const isAdmin = req.user.role === "ADMIN";
+        const isOrganiser = req.user.role === "ORGANISER";
 
-        const isAssignedOrganiser = (event.organizers || []).some(
-            organiser => organiser.toString() === req.user._id.toString()
-        );
-
-        if (!isAdmin && !isAssignedOrganiser) {
+        if (!isAdmin && !isOrganiser) {
             return res.status(403).json({
                 success: false,
                 message: "You are not authorized to export participants."

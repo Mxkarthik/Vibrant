@@ -95,6 +95,17 @@ export async function createEvent(payload: CreateEventPayload) {
   return data;
 }
 
+export async function uploadEventPoster(file: File, onProgress: (percentage: number) => void) {
+  const form = new FormData();
+  form.append("poster", file);
+  const { data } = await api.post<{ success: true; secureUrl: string }>("/events/poster", form, {
+    onUploadProgress: progress => {
+      if (progress.total) onProgress(Math.round((progress.loaded / progress.total) * 100));
+    },
+  });
+  return data;
+}
+
 export type UpdateEventPayload = Partial<Omit<CreateEventPayload, "registration">> & {
   registration?: Partial<CreateEventPayload["registration"]>;
 };

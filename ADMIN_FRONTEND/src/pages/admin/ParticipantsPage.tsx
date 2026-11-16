@@ -6,6 +6,7 @@ import type { EventRecord } from "../../api/events";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import PageHeader from "../../components/admin/PageHeader";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 
 const initialFilters: ParticipantFilters = { page: 1, limit: 20, search: "", type: "", paymentStatus: "", attendance: "", status: "REGISTERED" };
 const numberFormat = new Intl.NumberFormat("en-IN");
@@ -128,13 +129,13 @@ function RegistrationDrawer({ registrationId, onClose }: { registrationId: strin
     finally { setLoading(false); }
   }, [registrationId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
+  const dialogRef = useAccessibleDialog(onClose);
 
   const registration = result?.registration;
   const details = registration?.participantDetails;
   const team = registration?.team;
   const teamLeader = typeof team?.leader === "object" ? team.leader : null;
-  return <div className="participant-drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><aside className="participant-drawer" role="dialog" aria-modal="true" aria-labelledby="participant-drawer-title">
+  return <div className="participant-drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><aside ref={dialogRef} className="participant-drawer" role="dialog" aria-modal="true" aria-labelledby="participant-drawer-title">
     <header><div><p>REGISTRATION DETAILS</p><h2 id="participant-drawer-title">{details?.fullName || registration?.user?.name || (loading ? "Loading details…" : "Participant")}</h2></div><button className="participant-drawer-close" onClick={onClose} aria-label="Close details"><X size={18} /></button></header>
     {loading ? <ParticipantSkeleton /> : error ? <div className="participant-state"><p>{error}</p><Button variant="secondary" onClick={() => void load()}>Try again</Button></div> : registration && <div className="participant-drawer-content">
       <DetailSection title="Participant information"><Detail label="Email" value={registration.user?.email} icon={<Mail size={14} />} /><Detail label="Mobile" value={details?.mobileNumber} icon={<Phone size={14} />} /><Detail label="College" value={details?.collegeName} icon={<Building2 size={14} />} /><Detail label="Department" value={details?.department} /><Detail label="Section" value={details?.section} /><Detail label="Year of study" value={details?.yearOfStudy} /><Detail label="Roll number" value={details?.rollNumber} /></DetailSection>

@@ -11,6 +11,7 @@ declare module "lucide-react" {
   export const Settings2: LucideIcon;
   export const Users: LucideIcon;
   export const UserRoundCog: LucideIcon;
+  export const UserRound: LucideIcon;
   export const X: LucideIcon;
   export const Bell: LucideIcon;
   export const ChevronRight: LucideIcon;

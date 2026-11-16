@@ -6,6 +6,7 @@ import { useAuth } from "../../auth/AuthContext";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import PageHeader from "../../components/admin/PageHeader";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 
 type PendingChange = { user: AdminUserRecord; role: "ORGANISER" | "PARTICIPANT" };
 const dateFormat = new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" });
@@ -135,7 +136,8 @@ export default function OrganisersPage() {
 }
 
 function ParticipantPicker({ search, onSearch, page, onPage, total, pages, users, selected, loading, error, onRetry, onSelect, onPromote, onClose }: { search: string; onSearch: (value: string) => void; page: number; onPage: (page: number) => void; total: number; pages: number; users: AdminUserRecord[]; selected: string; loading: boolean; error: string | null; onRetry: () => void; onSelect: (user: AdminUserRecord) => void; onPromote: () => void; onClose: () => void }) {
-  return <div className="organiser-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="participant-picker" role="dialog" aria-modal="true" aria-labelledby="participant-picker-title">
+  const dialogRef = useAccessibleDialog(onClose);
+  return <div className="organiser-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef} className="participant-picker" role="dialog" aria-modal="true" aria-labelledby="participant-picker-title">
     <header><div><p>GLOBAL ROLE MANAGEMENT</p><h2 id="participant-picker-title">Promote a participant</h2></div><button className="organiser-modal-close" onClick={onClose} aria-label="Close participant selector"><X size={18} /></button></header>
     <p className="participant-picker-copy">Select an active registered participant. Organiser access applies across the platform.</p>
     <label className="organiser-search picker-search"><Search size={15} /><input value={search} onChange={event => onSearch(event.target.value)} placeholder="Search name or email" aria-label="Search eligible participants" /></label>
@@ -147,7 +149,8 @@ function ParticipantPicker({ search, onSearch, page, onPage, total, pages, users
 
 function RoleChangeConfirmation({ change, busy, onCancel, onConfirm }: { change: PendingChange; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
   const promoting = change.role === "ORGANISER";
-  return <div className="organiser-modal-backdrop top-layer" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onCancel(); }}><section className="role-change-dialog" role="alertdialog" aria-modal="true" aria-labelledby="role-change-title" aria-describedby="role-change-description"><span className="role-change-icon"><ShieldCheck size={18} /></span><h2 id="role-change-title">{promoting ? "Promote to organiser?" : "Demote organiser?"}</h2><p id="role-change-description">{promoting ? <>{change.user.name} will get global organiser access for VIBRANT events.</> : <>{change.user.name} will lose organiser access and return to the participant role.</>}</p><div className="role-change-user"><strong>{change.user.name}</strong><small>{change.user.email}</small></div><div className="role-change-actions"><Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant="primary" className={promoting ? "promote-confirm-button" : "demote-confirm-button"} onClick={onConfirm} disabled={busy}>{busy ? "Updating…" : promoting ? "Promote organiser" : "Demote to participant"}</Button></div></section></div>;
+  const dialogRef = useAccessibleDialog(onCancel, busy);
+  return <div className="organiser-modal-backdrop top-layer" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onCancel(); }}><section ref={dialogRef} className="role-change-dialog" role="alertdialog" aria-modal="true" aria-labelledby="role-change-title" aria-describedby="role-change-description"><span className="role-change-icon"><ShieldCheck size={18} /></span><h2 id="role-change-title">{promoting ? "Promote to organiser?" : "Demote organiser?"}</h2><p id="role-change-description">{promoting ? <>{change.user.name} will get global organiser access for VIBRANT events.</> : <>{change.user.name} will lose organiser access and return to the participant role.</>}</p><div className="role-change-user"><strong>{change.user.name}</strong><small>{change.user.email}</small></div><div className="role-change-actions"><Button variant="secondary" onClick={onCancel} disabled={busy}>Cancel</Button><Button variant="primary" className={promoting ? "promote-confirm-button" : "demote-confirm-button"} onClick={onConfirm} disabled={busy}>{busy ? "Updating…" : promoting ? "Promote organiser" : "Demote to participant"}</Button></div></section></div>;
 }
 
 function AccountStatus({ active }: { active: boolean }) { return <span className={`account-status ${active ? "active" : "inactive"}`}><i />{active ? "Active" : "Inactive"}</span>; }
