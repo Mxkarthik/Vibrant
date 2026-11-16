@@ -12,7 +12,10 @@ const app = express();
 const session = require("express-session");
 const passport = require("./config/passport");
 const connectDB = require("./config/db");
+const cookieParser = require("cookie-parser");
 
+app.use(express.json());
+app.use(cookieParser());
 
 
 app.use(express.json());

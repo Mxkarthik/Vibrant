@@ -2,7 +2,7 @@
 const express = require("express");
 const passport = require("passport");
 const generateToken = require("../utils/generateToken");
-
+const protect = require("../middleware/authMiddleware");
 const router = express.Router();
 
 // ==========================================
@@ -74,6 +74,21 @@ router.get("/failed", (req, res) => {
     return res.status(401).json({
         success: false,
         message: "Google authentication failed"
+    });
+});
+
+
+// Get currently authenticated user
+router.get("/me", protect, (req, res) => {
+    return res.status(200).json({
+        success: true,
+        user: {
+            id: req.user._id,
+            name: req.user.name,
+            email: req.user.email,
+            profilePicture: req.user.profilePicture,
+            role: req.user.role
+        }
     });
 });
 
