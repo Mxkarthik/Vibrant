@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const Event = require("../models/Event");
 const Registration = require("../models/Registration");
 const Team = require("../models/Team");
+const User = require("../models/User");
 const PDFDocument = require("pdfkit");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
 // Validate and normalize event-specific answers
@@ -455,6 +456,7 @@ const getEventParticipants = async (req, res) => {
 
         const page = Number.parseInt(req.query.page, 10) || 1;
         const limit = Number.parseInt(req.query.limit, 10) || 20;
+        const { search = "", type = "", paymentStatus = "", attendance = "", status = "REGISTERED" } = req.query;
 
         if (
             !Number.isInteger(page) ||
@@ -469,14 +471,72 @@ const getEventParticipants = async (req, res) => {
             });
         }
 
+        if (typeof search !== "string" || typeof type !== "string" || typeof paymentStatus !== "string" || typeof attendance !== "string" || typeof status !== "string") {
+            return res.status(400).json({ success: false, message: "Invalid participant filters" });
+        }
+        if (type && !["INDIVIDUAL", "TEAM"].includes(type)) {
+            return res.status(400).json({ success: false, message: "Invalid registration type" });
+        }
+        if (paymentStatus && !["NOT_REQUIRED", "PENDING", "VERIFIED", "REJECTED"].includes(paymentStatus)) {
+            return res.status(400).json({ success: false, message: "Invalid payment status" });
+        }
+        if (attendance && !["PRESENT", "ABSENT"].includes(attendance)) {
+            return res.status(400).json({ success: false, message: "Invalid attendance status" });
+        }
+        if (!["REGISTERED", "CANCELLED", "ALL"].includes(status)) {
+            return res.status(400).json({ success: false, message: "Invalid registration status" });
+        }
+
         const filter = {
-            event: id,
-            status: "REGISTERED"
+            event: id
         };
+        if (status !== "ALL") filter.status = status;
+        if (type === "INDIVIDUAL") filter.team = null;
+        if (type === "TEAM") filter.team = { $ne: null };
+        if (attendance === "PRESENT") filter["attendance.isPresent"] = true;
+        if (attendance === "ABSENT") filter["attendance.isPresent"] = { $ne: true };
+
+        if (paymentStatus) {
+            const paymentClauses = [];
+            if (type !== "TEAM") paymentClauses.push({ team: null, "payment.status": paymentStatus });
+            if (type !== "INDIVIDUAL") {
+                const matchingTeams = await Team.find({ event: id, "payment.status": paymentStatus }).distinct("_id");
+                if (matchingTeams.length) paymentClauses.push({ team: { $in: matchingTeams } });
+            }
+            if (!paymentClauses.length) {
+                filter._id = { $exists: false };
+            } else if (paymentClauses.length === 1) {
+                Object.assign(filter, paymentClauses[0]);
+            } else {
+                filter.$or = paymentClauses;
+            }
+        }
+
+        if (search.trim()) {
+            const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const searchPattern = { $regex: escaped, $options: "i" };
+            const [matchingUsers, matchingTeams] = await Promise.all([
+                User.find({ $or: [{ name: searchPattern }, { email: searchPattern }] }).distinct("_id"),
+                Team.find({ event: id, teamName: searchPattern }).distinct("_id")
+            ]);
+            const searchClauses = [
+                { "participantDetails.fullName": searchPattern },
+                { "participantDetails.mobileNumber": searchPattern },
+                { "participantDetails.collegeName": searchPattern },
+                { "participantDetails.department": searchPattern },
+                { "participantDetails.section": searchPattern },
+                { "participantDetails.yearOfStudy": searchPattern },
+                { "participantDetails.rollNumber": searchPattern }
+            ];
+            if (matchingUsers.length) searchClauses.push({ user: { $in: matchingUsers } });
+            if (matchingTeams.length) searchClauses.push({ team: { $in: matchingTeams } });
+            filter.$and = [...(filter.$and || []), { $or: searchClauses }];
+        }
 
         const [registrations, total] = await Promise.all([
             Registration.find(filter)
                 .populate("user", "name email")
+                .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } })
                 .sort({ createdAt: -1 })
                 .skip((page - 1) * limit)
                 .limit(limit)
@@ -528,7 +588,8 @@ const getRegistrationById = async (req, res) => {
 
         const registration = await Registration.findById(id)
             .populate("user", "name email")
-            .populate("event", "name category venue startDate endDate organizers");
+            .populate("event", "name category venue startDate endDate organizers")
+            .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } });
 
         if (!registration) {
             return res.status(404).json({
@@ -538,7 +599,7 @@ const getRegistrationById = async (req, res) => {
         }
 
         const isOwner =
-            registration.user._id.toString() === req.user._id.toString();
+            registration.user?._id?.toString() === req.user._id.toString();
 
         const isAdmin = req.user.role === "ADMIN";
 
@@ -555,9 +616,23 @@ const getRegistrationById = async (req, res) => {
             });
         }
 
+        let teamMembers;
+        if (registration.team && (isAdmin || isAssignedOrganiser)) {
+            const members = await Registration.find({ team: registration.team._id, status: "REGISTERED" })
+                .select("participantDetails.fullName user isTeamLeader")
+                .populate("user", "name email")
+                .lean();
+            teamMembers = members.map(member => ({
+                name: member.participantDetails?.fullName || member.user?.name || "Participant",
+                email: member.user?.email || null,
+                isTeamLeader: Boolean(member.isTeamLeader)
+            }));
+        }
+
         return res.status(200).json({
             success: true,
-            registration
+            registration,
+            ...(teamMembers ? { teamMembers } : {})
         });
 
     } catch (error) {

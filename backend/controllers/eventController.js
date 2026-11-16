@@ -1,6 +1,7 @@
 
 const Event = require("../models/Event");
 const mongoose = require("mongoose");
+const crypto = require("node:crypto");
 // @desc    Create a new event
 // @route   POST /api/events
 // @access  ADMIN only
