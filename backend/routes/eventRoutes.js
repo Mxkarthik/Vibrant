@@ -3,7 +3,7 @@ const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
-const { createEvent , getAllEvents, getEventById} = require("../controllers/eventController");
+const { createEvent , getAllEvents, getEventById , updateEvent} = require("../controllers/eventController");
 
 const router = express.Router();
 
@@ -35,5 +35,13 @@ router.get("/test", (req, res) => {
         message: "Event routes are working!"
     });
 });
+
+// Update event - ADMIN only
+router.patch(
+    "/:id",
+    protect,
+    authorizeRoles("ADMIN"),
+    updateEvent
+);
 
 module.exports = router;

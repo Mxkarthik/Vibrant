@@ -163,6 +163,169 @@ const getEventById = async (req, res) => {
 };
 
 
+const updateEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Validate MongoDB ObjectId
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID"
+            });
+        }
+
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found"
+            });
+        }
+
+        const {
+            name,
+            description,
+            category,
+            poster,
+            venue,
+            startDate,
+            endDate,
+            registration
+        } = req.body;
+
+        // Update only permitted basic fields
+        if (name !== undefined) event.name = name;
+        if (description !== undefined) event.description = description;
+        if (category !== undefined) event.category = category;
+        if (poster !== undefined) event.poster = poster;
+        if (venue !== undefined) event.venue = venue;
+        if (startDate !== undefined) event.startDate = startDate;
+        if (endDate !== undefined) event.endDate = endDate;
+
+        // Update permitted registration settings
+        if (registration !== undefined) {
+            if (
+                typeof registration !== "object" ||
+                registration === null ||
+                Array.isArray(registration)
+            ) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid registration configuration"
+                });
+            }
+
+            const allowedRegistrationFields = [
+                "deadline",
+                "capacity",
+                "registrationFee"
+            ];
+
+            for (const field of allowedRegistrationFields) {
+                if (registration[field] !== undefined) {
+                    event.registration[field] = registration[field];
+                }
+            }
+        }
+
+        // Capacity cannot be lower than existing registrations
+        if (
+            event.registration.capacity <
+            event.registration.registeredParticipants
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Capacity cannot be lower than registered participants"
+            });
+        }
+
+        // Save and run Mongoose document validation
+        await event.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Event updated successfully",
+            event
+        });
+
+    } catch (error) {
+        console.error("Update event error:", error);
+
+        if (error.name === "ValidationError") {
+            return res.status(400).json({
+                success: false,
+                message: "Event validation failed",
+                errors: Object.values(error.errors).map(
+                    err => err.message
+                )
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to update event"
+        });
+    }
+};
+
+
+const cancelEvent = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID"
+            });
+        }
+
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found"
+            });
+        }
+
+        if (event.status === "CANCELLED") {
+            return res.status(409).json({
+                success: false,
+                message: "Event is already cancelled"
+            });
+        }
+
+        if (event.status === "COMPLETED") {
+            return res.status(409).json({
+                success: false,
+                message: "Completed events cannot be cancelled"
+            });
+        }
+
+        event.status = "CANCELLED";
+
+        await event.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Event cancelled successfully",
+            event
+        });
+
+    } catch (error) {
+        console.error("Cancel event error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to cancel event"
+        });
+    }
+};
+
+
 module.exports = {
-    createEvent,getAllEvents , getEventById
+    createEvent,getAllEvents , getEventById , updateEvent , cancelEvent
 };
