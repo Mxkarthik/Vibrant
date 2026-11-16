@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const Event = require("../models/Event");
 const Team = require("../models/Team");
 const Registration = require("../models/Registration");
+const uploadToCloudinary = require("../utils/uploadToCloudinary");
 
 const registerTeam = async (req, res) => {
     const session = await mongoose.startSession();
@@ -452,7 +453,95 @@ const updateTeamPaymentStatus = async (req, res) => {
     }
 };
 
+
+const uploadTeamPaymentProof = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid team ID"
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Payment screenshot is required"
+            });
+        }
+
+        const team = await Team.findById(id);
+
+        if (!team) {
+            return res.status(404).json({
+                success: false,
+                message: "Team not found"
+            });
+        }
+
+        // Only the team leader can upload shared payment proof
+        if (team.leader.toString() !== req.user._id.toString()) {
+            return res.status(403).json({
+                success: false,
+                message: "Only the team leader can upload payment proof"
+            });
+        }
+
+        if (team.status !== "REGISTERED") {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid team status"
+            });
+        }
+
+        if (team.payment.method !== "UPI") {
+            return res.status(400).json({
+                success: false,
+                message: "Payment proof upload is only available for UPI payments"
+            });
+        }
+
+        if (team.payment.status !== "PENDING") {
+            return res.status(400).json({
+                success: false,
+                message: "Team payment is not in PENDING status"
+            });
+        }
+
+        if (team.payment.proofUrl) {
+            return res.status(409).json({
+                success: false,
+                message: "Team payment proof has already been uploaded"
+            });
+        }
+
+        const uploadedImage = await uploadToCloudinary(req.file.buffer);
+
+        team.payment.proofUrl = uploadedImage.url;
+
+        await team.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Team payment proof uploaded successfully",
+            proofUrl: uploadedImage.url
+        });
+
+    } catch (error) {
+        console.error("Team payment proof upload error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to upload team payment proof"
+        });
+    }
+};
+
+
 module.exports = {
     registerTeam,
-    updateTeamPaymentStatus
+    updateTeamPaymentStatus,
+    uploadTeamPaymentProof
 };

@@ -8,10 +8,13 @@ const {
     getMyRegistrations,
     getRegistrationById,
     updatePaymentStatus,
-    markAttendance
+    markAttendance,
+    uploadRegistrationPaymentProof
 } = require("../controllers/registrationController");
 
 const router = express.Router();
+
+const upload = require("../middleware/uploadMiddleware");
 
 const {
     downloadCertificate
@@ -38,6 +41,14 @@ router.patch(
 router.get(
     "/certificate/:certificateId/download",
     downloadCertificate
+);
+
+// Participant: upload individual UPI payment proof
+router.post(
+    "/:id/payment-proof",
+    protect,
+    upload.single("screenshot"),
+    uploadRegistrationPaymentProof
 );
 
 // Participant, admin or assigned organiser: view registration

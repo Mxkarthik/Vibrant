@@ -5,6 +5,7 @@ const Event = require("../models/Event");
 const Registration = require("../models/Registration");
 const Team = require("../models/Team");
 const PDFDocument = require("pdfkit");
+const uploadToCloudinary = require("../utils/uploadToCloudinary");
 // Validate and normalize event-specific answers
 const validateCustomResponses = (fields, responses) => {
     if (!Array.isArray(responses)) {
@@ -1286,6 +1287,95 @@ const downloadCertificate = async (req, res) => {
 };
 
 
+const uploadRegistrationPaymentProof = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid registration ID"
+            });
+        }
+
+        if (!req.file) {
+            return res.status(400).json({
+                success: false,
+                message: "Payment screenshot is required"
+            });
+        }
+
+        const registration = await Registration.findById(id);
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                message: "Registration not found"
+            });
+        }
+
+        // Only the registered participant can upload
+        if (
+            !registration.user ||
+            registration.user.toString() !== req.user._id.toString()
+        ) {
+            return res.status(403).json({
+                success: false,
+                message: "You can only upload proof for your own registration"
+            });
+        }
+
+        if (registration.status !== "REGISTERED") {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid registration status"
+            });
+        }
+
+        if (registration.payment.method !== "UPI") {
+            return res.status(400).json({
+                success: false,
+                message: "Payment proof upload is only available for UPI payments"
+            });
+        }
+
+        if (registration.payment.status !== "PENDING") {
+            return res.status(400).json({
+                success: false,
+                message: "Payment is not in PENDING status"
+            });
+        }
+
+        if (registration.payment.proofUrl) {
+            return res.status(409).json({
+                success: false,
+                message: "Payment proof has already been uploaded"
+            });
+        }
+
+        const uploadedImage = await uploadToCloudinary(req.file.buffer);
+
+        registration.payment.proofUrl = uploadedImage.url;
+
+        await registration.save();
+
+        return res.status(200).json({
+            success: true,
+            message: "Payment proof uploaded successfully",
+            proofUrl: uploadedImage.url
+        });
+
+    } catch (error) {
+        console.error("Individual payment proof upload error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to upload payment proof"
+        });
+    }
+};
+
+
 module.exports = {
     registerForEvent,
     getMyRegistrations,
@@ -1296,5 +1386,6 @@ module.exports = {
     getEventAttendanceReport,
     exportEventParticipants,
     issueEventCertificates,
-    downloadCertificate
+    downloadCertificate,
+    uploadRegistrationPaymentProof
 };
