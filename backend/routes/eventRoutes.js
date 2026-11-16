@@ -3,7 +3,7 @@ const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
 
-const { createEvent , getAllEvents, getEventById , updateEvent , cancelEvent } = require("../controllers/eventController");
+const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent } = require("../controllers/eventController");
 
 const router = express.Router();
 
@@ -51,6 +51,12 @@ router.patch(
     protect,
     authorizeRoles("ADMIN"),
     cancelEvent
+);
+
+router.get(
+    "/filtered",
+    protect,
+    getAllEventsWithFilters
 );
 
 module.exports = router;

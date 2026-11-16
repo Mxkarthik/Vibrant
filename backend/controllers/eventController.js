@@ -325,7 +325,8 @@ const cancelEvent = async (req, res) => {
     }
 };
 
-const getAllEvents = async (req, res) => {
+
+const getAllEventsWithFilters = async (req, res) => {
     try {
         const {
             search,
@@ -415,7 +416,7 @@ const getAllEvents = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Get events error:", error);
+        console.error("Get filtered events error:", error);
 
         return res.status(500).json({
             success: false,
@@ -424,6 +425,7 @@ const getAllEvents = async (req, res) => {
     }
 };
 
+
 module.exports = {
-    createEvent,getAllEvents , getEventById , updateEvent , cancelEvent
+    createEvent,getAllEvents ,getAllEventsWithFilters, getEventById , updateEvent , cancelEvent
 };
