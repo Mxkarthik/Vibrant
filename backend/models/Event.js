@@ -92,6 +92,57 @@ const eventSchema = new mongoose.Schema(
             }
         },
 
+        registrationFields: [
+        {
+            fieldId: {
+                type: String,
+                required: true
+            },
+
+            label: {
+                type: String,
+                required: true,
+                trim: true
+            },
+
+            fieldKey: {
+                type: String,
+                required: true,
+                trim: true
+            },
+
+            fieldType: {
+                type: String,
+                enum: [
+                    "TEXT",
+                    "TEXTAREA",
+                    "NUMBER",
+                    "DROPDOWN",
+                    "RADIO",
+                    "CHECKBOX",
+                    "DATE",
+                    "URL"
+                ],
+            required: true
+            },
+
+            required: {
+                type: Boolean,
+                default: false
+            },
+
+            options: {
+                type: [String],
+                default: []
+            },
+
+            order: {
+                type: Number,
+                default: 0
+            }
+        }
+        ],
+
         // Event status
         status: {
             type: String,
