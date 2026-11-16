@@ -5,7 +5,7 @@ const authorizeRoles = require("../middleware/roleMiddleware");
 const {registerForEvent} = require("../controllers/registrationController");
 const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent } = require("../controllers/eventController");
 const {
-    getEventParticipants
+    getEventParticipants,getEventAttendanceReport
 } = require("../controllers/registrationController");
 const router = express.Router();
 const { registerTeam } = require("../controllers/teamRegistrationController");
@@ -70,6 +70,14 @@ router.patch(
     protect,
     authorizeRoles("ADMIN"),
     completeEvent
+);
+
+// Attandence report
+router.get(
+    "/:id/attendance",
+    protect,
+    authorizeRoles("ADMIN", "ORGANISER"),
+    getEventAttendanceReport
 );
 
 router.post("/:id/register-team", protect, registerTeam);

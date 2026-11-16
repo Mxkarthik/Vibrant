@@ -734,6 +734,85 @@ const markAttendance = async (req, res) => {
     }
 };
 
+const getEventAttendanceReport = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid event ID."
+            });
+        }
+
+        const event = await Event.findById(id);
+
+        if (!event) {
+            return res.status(404).json({
+                success: false,
+                message: "Event not found."
+            });
+        }
+
+        // Only admin or assigned organiser can access the report
+        const isAdmin = req.user.role === "ADMIN";
+        const isAssignedOrganiser = event.organizers.some(
+            organiser => organiser.toString() === req.user._id.toString()
+        );
+
+        if (!isAdmin && !isAssignedOrganiser) {
+            return res.status(403).json({
+                success: false,
+                message: "You are not authorized to view this report."
+            });
+        }
+
+        const registrations = await Registration.find({
+            event: id,
+            status: "REGISTERED"
+        })
+            .populate("team", "teamName")
+            .select("participantDetails team attendance isTeamLeader");
+
+        const total = registrations.length;
+        const present = registrations.filter(
+            r => r.attendance.isPresent
+        ).length;
+        const absent = total - present;
+
+        return res.status(200).json({
+            success: true,
+            event: event.name,
+            statistics: {
+                totalParticipants: total,
+                present,
+                absent,
+                attendancePercentage: total
+                    ? Number(((present / total) * 100).toFixed(2))
+                    : 0
+            },
+            participants: registrations.map(r => ({
+                name: r.participantDetails.fullName,
+                mobileNumber: r.participantDetails.mobileNumber,
+                collegeName: r.participantDetails.collegeName,
+                department: r.participantDetails.department,
+                rollNumber: r.participantDetails.rollNumber,
+                teamName: r.team?.teamName || null,
+                isTeamLeader: r.isTeamLeader,
+                attendance: r.attendance.isPresent ? "PRESENT" : "ABSENT",
+                checkedInAt: r.attendance.checkedInAt
+            }))
+        });
+
+    } catch (error) {
+        console.error("Attendance report error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to generate attendance report."
+        });
+    }
+};
 
 module.exports = {
     registerForEvent,
@@ -741,5 +820,6 @@ module.exports = {
     getEventParticipants,
     getRegistrationById,
     updatePaymentStatus,
-    markAttendance
+    markAttendance,
+    getEventAttendanceReport
 };
