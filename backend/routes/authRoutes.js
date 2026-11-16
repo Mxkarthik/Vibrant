@@ -4,6 +4,7 @@ const passport = require("passport");
 const generateToken = require("../utils/generateToken");
 const protect = require("../middleware/authMiddleware");
 const router = express.Router();
+const authorizeRoles = require("../middleware/roleMiddleware");
 
 // ==========================================
 // 1. Start Google OAuth
@@ -91,5 +92,29 @@ router.get("/me", protect, (req, res) => {
         }
     });
 });
+
+router.get(
+    "/admin-test",
+    protect,
+    authorizeRoles("ADMIN"),
+    (req, res) => {
+        res.status(200).json({
+            success: true,
+            message: "Welcome Admin!"
+        });
+    }
+);
+
+router.get(
+    "/participant-test",
+    protect,
+    authorizeRoles("PARTICIPANT"),
+    (req, res) => {
+        res.status(200).json({
+            success: true,
+            message: "Welcome Participant!"
+        });
+    }
+);
 
 module.exports = router;
