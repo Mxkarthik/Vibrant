@@ -13,6 +13,7 @@ const session = require("express-session");
 const passport = require("./config/passport");
 const connectDB = require("./config/db");
 const cookieParser = require("cookie-parser");
+const eventRoutes = require("./routes/eventRoutes");
 
 app.use(express.json());
 app.use(cookieParser());
@@ -49,4 +50,6 @@ const startServer = async () => {
 
 const authRoutes = require("./routes/authRoutes");
 app.use("/api/auth", authRoutes);
+app.use("/api/events", eventRoutes);
+
 startServer();
