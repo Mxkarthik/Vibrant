@@ -34,7 +34,7 @@ const detailFields: Array<{ key: keyof ParticipantDetails; label: string; type?:
 export default function IndividualRegistrationPage() {
   const { eventId } = useParams();
   const { user } = useAuth();
-  const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations();
+  const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations({ preserveContentOnRefresh: true });
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [eventError, setEventError] = useState<string | null>(null);
@@ -212,7 +212,7 @@ export default function IndividualRegistrationPage() {
       {submitError && <div className="registration-submit-error" role="alert"><p>{submitError}</p>{isUnauthorizedError(submitError) && <Link to="/login">Sign in again</Link>}</div>}
       <div className="registration-review-event"><span>Event</span><strong>{event.name}</strong></div>
       <div className="registration-review-grid"><ReviewItem label="Registration type" value="Individual" /><ReviewItem label="Participant" value={details.fullName} /><ReviewItem label="Email" value={user?.email || "Unavailable"} /><ReviewItem label="Mobile number" value={details.mobileNumber} /><ReviewItem label="College" value={details.collegeName} /><ReviewItem label="Department" value={details.department} /><ReviewItem label="Year / section" value={`${details.yearOfStudy} · ${details.section}`} /><ReviewItem label="Roll number" value={details.rollNumber} /><ReviewItem label="Registration fee" value={event.registration.registrationFee === 0 ? "Free" : formatFee(event.registration.registrationFee)} />{event.registration.registrationFee > 0 && <ReviewItem label="Selected payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
-      {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Payment screenshot</h3><PaymentProofPreview file={paymentProof} /></div>}
+      {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Payment screenshot</h3><p>{paymentProof.name}</p><PaymentProofPreview file={paymentProof} /></div>}
       {sortedFields.length > 0 && <div className="registration-review-custom"><h3>Event responses</h3>{sortedFields.map((field) => <ReviewItem key={field.fieldId} label={field.label} value={formatAnswer(answers[field.fieldKey])} />)}</div>}
       <div className="registration-review-important"><strong>Important</strong><p>Registration closes on {formatDate(event.registration.deadline)}. {event.registration.registrationFee > 0 ? "Your payment information and proof will be submitted with the registration. Payment remains pending until administrator verification." : "No payment is required for this event."}</p></div>
       {submitting && paymentMethod === "UPI" && <p className="registration-upload-status" role="status">{uploadProgress < 100 ? `Sending registration and screenshot: ${uploadProgress}%` : "Screenshot sent. Saving your registration and payment proof…"}</p>}

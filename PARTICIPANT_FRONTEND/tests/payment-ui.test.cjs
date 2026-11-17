@@ -54,7 +54,14 @@ test("Payment selection, StrictMode preview, QR sizing and real multipart transp
         uploads.push({ path: req.url, type: req.headers["content-type"], file: req.file, body: req.body });
         res.json({ success: true, registration: { _id: "individual", status: "REGISTERED", payment: { status: "PENDING", method: "UPI" } }, team: { id: "team", teamName: "Test Team", memberCount: 1, payment: { status: "PENDING" } }, proofUrl: "https://example.invalid/test-proof.png" });
       });
-    } else if (req.url === "/test.js") { res.setHeader("Content-Type", "text/javascript"); res.end(bundle.outputFiles.find(file => file.path.endsWith(".js")).contents); }
+    } else if (req.url === "/api/auth/me") { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ success: true, user: { id: "test-user", name: "Test User", email: "test@example.invalid", role: "PARTICIPANT", profilePicture: null } })); }
+    else if (req.url === "/api/registrations/my") { setTimeout(() => { if (!res.destroyed) { res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ success: true, registrations: [] })); } }, 180); }
+    else if (/^\/api\/events\/(individual|team)$/.test(req.url)) {
+      const mode = req.url.endsWith("/team") ? "TEAM" : "INDIVIDUAL";
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ success: true, event: { _id: mode === "TEAM" ? "team" : "individual", name: `Test ${mode} Event`, category: "TECHNICAL", status: "PUBLISHED", venue: "Test Venue", startDate: "2035-12-20", endDate: "2035-12-21", paymentQrUrl: "/qr-a.png", registration: { mode, registeredParticipants: 0, capacity: 20, minTeamSize: 2, maxTeamSize: 5, deadline: "2035-12-19", registrationFee: 100 }, registrationFields: [] } }));
+    }
+    else if (req.url === "/test.js") { res.setHeader("Content-Type", "text/javascript"); res.end(bundle.outputFiles.find(file => file.path.endsWith(".js")).contents); }
     else if (req.url === "/test.css") { res.setHeader("Content-Type", "text/css"); res.end(bundle.outputFiles.find(file => file.path.endsWith(".css")).contents); }
     else if (req.url.endsWith(".png")) { res.setHeader("Content-Type", "image/png"); res.end(png); }
     else { res.setHeader("Content-Type", "text/html"); res.end('<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/test.css"><style>body{margin:0;padding:16px;box-sizing:border-box}*{box-sizing:border-box}</style><div id="test-root"></div><script src="/test.js"></script>'); }
@@ -71,7 +78,7 @@ test("Payment selection, StrictMode preview, QR sizing and real multipart transp
       console.log(`${width}px: ${results.length} browser assertions passed`);
       console.log(results.filter(result => result.name === "QR is large and contained").map(result => result.detail).join("; "));
     }
-    assert.equal(uploads.length, widths.length * 4);
+    assert.equal(uploads.length, widths.length * 6);
     for (const upload of uploads) {
       assert.match(upload.type, /^multipart\/form-data; boundary=/);
       assert.equal(upload.file.fieldname, "screenshot");

@@ -30,7 +30,7 @@ const blankMember = (name = ""): TeamMemberForm => ({
 export default function TeamRegistrationPage() {
   const { eventId } = useParams();
   const { user } = useAuth();
-  const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations();
+  const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations({ preserveContentOnRefresh: true });
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -251,7 +251,7 @@ export default function TeamRegistrationPage() {
     </form> : <section className="registration-review-card"><p className="participant-eyebrow">FINAL REVIEW</p><h2>Confirm team registration</h2><p className="registration-review-intro">Confirm the team name, leader, and each member before submitting.</p>{submitError && <div className="registration-submit-error" role="alert"><p>{submitError}</p>{submitError.includes("session has expired") && <Link to="/login">Sign in again</Link>}</div>}
       <div className="registration-review-event"><span>Event</span><strong>{event.name}</strong></div>
       <div className="registration-review-grid"><ReviewItem label="Team name" value={teamName} /><ReviewItem label="Registration type" value="Team" /><ReviewItem label="Team size" value={`${members.length} members`} /><ReviewItem label="Configured fee per registration" value={registration.registrationFee === 0 ? "Free" : formatFee(registration.registrationFee)} />{registration.registrationFee > 0 && <ReviewItem label="Shared payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
-      {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Shared payment screenshot</h3><PaymentProofPreview file={paymentProof} /></div>}
+      {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Shared payment screenshot</h3><p>{paymentProof.name}</p><PaymentProofPreview file={paymentProof} /></div>}
       <div className="team-review-members"><h3>Team roster</h3>{members.map((member, index) => <article key={`review-${index}`}><span className="team-review-index">{index === 0 ? "L" : index + 1}</span><div><strong>{member.participantDetails.fullName || `Member ${index + 1}`}{index === 0 && <em>Leader</em>}</strong><p>{member.participantDetails.collegeName} · {member.participantDetails.department} · {member.participantDetails.rollNumber}</p></div></article>)}</div>
       {fields.length > 0 && <p className="registration-prefill-note">Event-specific responses for each member will be saved with their individual team registration record.</p>}
       <div className="registration-review-important"><strong>Important</strong><p>Registration closes on {formatDate(registration.deadline)}. {registration.registrationFee > 0 ? "Payment information and one shared proof will be submitted with the team registration. Payment remains pending until administrator verification." : "No payment is required for this event."}</p></div>

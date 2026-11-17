@@ -3,6 +3,12 @@ import { useEffect, useRef, useState } from "react";
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
+function syncFileInput(input: HTMLInputElement, file: File | null) {
+  const selection = new DataTransfer();
+  if (file) selection.items.add(file);
+  input.files = selection.files;
+}
+
 interface Props {
   method: "" | "UPI" | "CASH";
   onMethodChange: (method: "UPI" | "CASH") => void;
@@ -19,6 +25,11 @@ interface Props {
 
 export default function RegistrationPaymentFields({ method, onMethodChange, qrUrl, amount, screenshot, onScreenshotChange, cashReceiverName, onCashReceiverNameChange, error, onError, shared = false }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // React state owns the File; restore the native filename after review/edit
+    // or a UPI/CASH round trip mounts a new input element.
+    if (fileInput.current) syncFileInput(fileInput.current, screenshot);
+  }, [screenshot, method]);
   return <>
     <div className="registration-payment-options">
       <label className={`registration-payment-option${method === "UPI" ? " is-selected" : ""}${!qrUrl ? " is-unavailable" : ""}`}>
@@ -40,8 +51,8 @@ export default function RegistrationPaymentFields({ method, onMethodChange, qrUr
       <label className="registration-input registration-payment-file"><span>Payment screenshot <i>*</i></span><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" onChange={event => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
-        if (!ALLOWED_TYPES.has(file.type)) { event.currentTarget.value = ""; onError("Choose a JPG, JPEG, PNG or WEBP payment screenshot."); return; }
-        if (file.size > MAX_FILE_SIZE) { event.currentTarget.value = ""; onError("Payment screenshots must be 5 MB or smaller."); return; }
+        if (!ALLOWED_TYPES.has(file.type)) { syncFileInput(event.currentTarget, screenshot); onError("Choose a JPG, JPEG, PNG or WEBP payment screenshot."); return; }
+        if (file.size > MAX_FILE_SIZE) { syncFileInput(event.currentTarget, screenshot); onError("Payment screenshots must be 5 MB or smaller."); return; }
         onError(""); onScreenshotChange(file);
       }} /><small>JPG, JPEG, PNG or WEBP · up to 5 MB. Your screenshot uploads when you submit the final registration.</small></label>
       {screenshot && <div className="registration-payment-selected-file"><PaymentProofPreview file={screenshot} /><span>{screenshot.name}</span><button type="button" onClick={() => { if (fileInput.current) fileInput.current.value = ""; onScreenshotChange(null); onError(""); }}>Remove</button></div>}

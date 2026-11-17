@@ -1,22 +1,29 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { getMyRegistrations, type MyRegistration } from "../api/registrationService";
 import { REGISTRATIONS_CHANGED } from "../api/registrationStateEvents";
 
-export function useMyRegistrations() {
+export function useMyRegistrations({ preserveContentOnRefresh = false }: { preserveContentOnRefresh?: boolean } = {}) {
   const [registrations, setRegistrations] = useState<MyRegistration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
   const [revision, setRevision] = useState(0);
+  const hasLoaded = useRef(false);
 
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
 
   useEffect(() => {
     const controller = new AbortController();
-    setLoading(true);
+    // A focus refresh must not remove a registration form's open file picker.
+    // The initial ownership check still blocks the form until it succeeds.
+    setLoading(!preserveContentOnRefresh || !hasLoaded.current);
     setError(null);
     getMyRegistrations(controller.signal)
-      .then(setRegistrations)
+      .then(records => {
+        if (controller.signal.aborted) return;
+        hasLoaded.current = true;
+        setRegistrations(records);
+      })
       .catch((requestError: unknown) => {
         if (!axios.isCancel(requestError)) {
           setRegistrations([]);
@@ -25,7 +32,7 @@ export function useMyRegistrations() {
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [revision]);
+  }, [revision, preserveContentOnRefresh]);
 
   useEffect(() => {
     const refreshFromMessage = () => refresh();
