@@ -109,7 +109,36 @@ const registrationSchema = new mongoose.Schema(
             verifiedAt: {
                 type: Date,
                 default: null
-            }
+            },
+            // Append-only audit history. Never overwrite existing entries.
+            history: [
+                {
+                    fromStatus: {
+                        type: String,
+                        enum: ["NOT_REQUIRED", "PENDING", "VERIFIED", "REJECTED"],
+                        required: true
+                    },
+                    toStatus: {
+                        type: String,
+                        enum: ["NOT_REQUIRED", "PENDING", "VERIFIED", "REJECTED"],
+                        required: true
+                    },
+                    changedBy: {
+                        type: mongoose.Schema.Types.ObjectId,
+                        ref: "User",
+                        required: true
+                    },
+                    changedAt: {
+                        type: Date,
+                        required: true
+                    },
+                    reason: {
+                        type: String,
+                        trim: true,
+                        default: null
+                    }
+                }
+            ]
         },
 
         // Individual QR code identity

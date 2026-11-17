@@ -812,85 +812,198 @@ const getRegistrationById = async (req, res) => {
 };
 
 
-// @desc    Verify or reject participant payment
+// @desc    Update individual payment status (reversible)
 // @route   PATCH /api/registrations/:id/payment
 // @access  ADMIN only
+//
+// Supported transitions (all six directions):
+//   PENDING  → VERIFIED | REJECTED
+//   VERIFIED → PENDING  | REJECTED
+//   REJECTED → PENDING  | VERIFIED
+// NOT_REQUIRED payments cannot be changed.
+// A reason is required when setting status to REJECTED.
+// Capacity (Event.registration.registeredParticipants) is adjusted:
+//   * → REJECTED : decrement by 1
+//   REJECTED → * : increment by 1 (guards against exceeding capacity)
 
 const updatePaymentStatus = async (req, res) => {
+    const session = await mongoose.startSession();
     try {
         const { id } = req.params;
-        const { status } = req.body || {};
+        const { status: requestedStatus, reason } = req.body || {};
 
+        // --- Input validation ---
         if (!mongoose.isValidObjectId(id)) {
+            await session.endSession();
+            return res.status(400).json({ success: false, message: "Invalid registration ID" });
+        }
+
+        const validTargetStatuses = ["PENDING", "VERIFIED", "REJECTED"];
+        if (!validTargetStatuses.includes(requestedStatus)) {
+            await session.endSession();
             return res.status(400).json({
                 success: false,
-                message: "Invalid registration ID"
+                message: "Payment status must be PENDING, VERIFIED, or REJECTED"
             });
         }
 
-        if (!["VERIFIED", "REJECTED"].includes(status)) {
+        // Reason is required only for REJECTED; validate early so we fail fast.
+        const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+        if (requestedStatus === "REJECTED" && !trimmedReason) {
+            await session.endSession();
             return res.status(400).json({
                 success: false,
-                message: "Payment status must be VERIFIED or REJECTED"
+                message: "A reason is required when rejecting a payment"
             });
         }
 
-        const registration = await Registration.findById(id);
+        let result;
+        await session.withTransaction(async () => {
+            const registration = await Registration.findById(id).session(session);
 
-        if (!registration) {
-            return res.status(404).json({
-                success: false,
-                message: "Registration not found"
+            if (!registration) {
+                const error = new Error("Registration not found");
+                error.statusCode = 404;
+                throw error;
+            }
+
+            if (registration.status !== "REGISTERED") {
+                const error = new Error("Payments for cancelled registrations cannot be updated");
+                error.statusCode = 409;
+                throw error;
+            }
+
+            const currentStatus = registration.payment.status;
+
+            if (currentStatus === "NOT_REQUIRED") {
+                const error = new Error("Payments marked as not required cannot be changed");
+                error.statusCode = 409;
+                throw error;
+            }
+
+            // No-op: requested status equals current status
+            if (currentStatus === requestedStatus) {
+                result = { noOp: true, registration };
+                return;
+            }
+
+            // --- Capacity adjustment ---
+            const releasingCapacity = requestedStatus === "REJECTED";
+            const reclaimingCapacity = currentStatus === "REJECTED";
+
+            if (releasingCapacity) {
+                // Decrement by 1. The counter must be > 0; if the event is not
+                // found or the guard fails, abort — do not mutate payment state.
+                const decremented = await Event.findOneAndUpdate(
+                    {
+                        _id: registration.event,
+                        "registration.registeredParticipants": { $gt: 0 }
+                    },
+                    { $inc: { "registration.registeredParticipants": -1 } },
+                    { new: true, session }
+                );
+
+                if (!decremented) {
+                    const error = new Error(
+                        "Payment cannot be rejected: the event capacity counter is inconsistent or the event was not found"
+                    );
+                    error.statusCode = 409;
+                    throw error;
+                }
+            } else if (reclaimingCapacity) {
+                // Increment by 1; fail if at capacity
+                const updatedEvent = await Event.findOneAndUpdate(
+                    {
+                        _id: registration.event,
+                        $expr: {
+                            $lt: [
+                                "$registration.registeredParticipants",
+                                "$registration.capacity"
+                            ]
+                        }
+                    },
+                    { $inc: { "registration.registeredParticipants": 1 } },
+                    { new: true, session }
+                );
+
+                if (!updatedEvent) {
+                    const error = new Error(
+                        "Cannot re-activate this registration: the event is at capacity"
+                    );
+                    error.statusCode = 409;
+                    throw error;
+                }
+            }
+
+            // --- Mutation ---
+            const changedAt = new Date();
+
+            registration.payment.status = requestedStatus;
+
+            if (requestedStatus === "VERIFIED") {
+                registration.payment.verifiedBy = req.user._id;
+                registration.payment.verifiedAt = changedAt;
+            } else {
+                registration.payment.verifiedBy = null;
+                registration.payment.verifiedAt = null;
+            }
+
+            // Append audit entry
+            if (!Array.isArray(registration.payment.history)) {
+                registration.payment.history = [];
+            }
+            registration.payment.history.push({
+                fromStatus: currentStatus,
+                toStatus: requestedStatus,
+                changedBy: req.user._id,
+                changedAt,
+                reason: trimmedReason || null
+            });
+
+            await registration.save({ session });
+            result = { noOp: false, registration };
+        });
+
+        if (result.noOp) {
+            return res.status(200).json({
+                success: true,
+                message: `Payment is already ${requestedStatus.toLowerCase()}. No change made.`,
+                registration: {
+                    id: result.registration._id,
+                    status: result.registration.status,
+                    payment: {
+                        method: result.registration.payment.method,
+                        status: result.registration.payment.status,
+                        verifiedAt: result.registration.payment.verifiedAt
+                    }
+                }
             });
         }
-
-        if (registration.status !== "REGISTERED") {
-            return res.status(409).json({
-                success: false,
-                message: "Payments for cancelled registrations cannot be updated"
-            });
-        }
-
-        if (registration.payment.status !== "PENDING") {
-            return res.status(409).json({
-                success: false,
-                message: "Only pending payments can be updated"
-            });
-        }
-
-        registration.payment.status = status;
-
-        if (status === "VERIFIED") {
-            registration.payment.verifiedBy = req.user._id;
-            registration.payment.verifiedAt = new Date();
-        } else {
-            registration.payment.verifiedBy = null;
-            registration.payment.verifiedAt = null;
-        }
-
-        await registration.save();
 
         return res.status(200).json({
             success: true,
-            message: `Payment ${status.toLowerCase()} successfully`,
+            message: `Payment ${requestedStatus.toLowerCase()} successfully`,
             registration: {
-                id: registration._id,
-                status: registration.status,
+                id: result.registration._id,
+                status: result.registration.status,
                 payment: {
-                    method: registration.payment.method,
-                    status: registration.payment.status,
-                    verifiedAt: registration.payment.verifiedAt
+                    method: result.registration.payment.method,
+                    status: result.registration.payment.status,
+                    verifiedAt: result.registration.payment.verifiedAt
                 }
             }
         });
 
     } catch (error) {
         console.error("Update payment status error:", error);
-
-        return res.status(500).json({
+        return res.status(error.statusCode || 500).json({
             success: false,
-            message: "Failed to update payment status"
+            message: error.statusCode
+                ? error.message
+                : "Failed to update payment status"
         });
+    } finally {
+        await session.endSession();
     }
 };
 

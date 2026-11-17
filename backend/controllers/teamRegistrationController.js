@@ -630,79 +630,203 @@ const getLeaderTeamTickets = async (req, res) => {
     }
 };
 
-// Admin: verify or reject shared team payment
+// Admin: update shared team payment status (reversible)
+// @route   PATCH /api/teams/:id/payment
+// @access  ADMIN only
+//
+// Supported transitions (all six directions):
+//   PENDING  → VERIFIED | REJECTED
+//   VERIFIED → PENDING  | REJECTED
+//   REJECTED → PENDING  | VERIFIED
+// NOT_REQUIRED payments cannot be changed.
+// A reason is required when setting status to REJECTED.
+// Capacity (Event.registration.registeredParticipants) is adjusted by team.memberCount:
+//   * → REJECTED : decrement by memberCount
+//   REJECTED → * : increment by memberCount (guards against exceeding capacity)
+
 const updateTeamPaymentStatus = async (req, res) => {
+    const session = await mongoose.startSession();
     try {
-        const { status } = req.body;
+        const { status: requestedStatus, reason } = req.body || {};
 
-        if (!["VERIFIED", "REJECTED"].includes(status)) {
-            return res.status(400).json({
-                success: false,
-                message: "Payment status must be VERIFIED or REJECTED."
-            });
-        }
-
+        // --- Input validation ---
         if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+            await session.endSession();
+            return res.status(400).json({ success: false, message: "Invalid team ID." });
+        }
+
+        const validTargetStatuses = ["PENDING", "VERIFIED", "REJECTED"];
+        if (!validTargetStatuses.includes(requestedStatus)) {
+            await session.endSession();
             return res.status(400).json({
                 success: false,
-                message: "Invalid team ID."
+                message: "Payment status must be PENDING, VERIFIED, or REJECTED."
             });
         }
 
-        const team = await Team.findById(req.params.id);
-
-        if (!team) {
-            return res.status(404).json({
-                success: false,
-                message: "Team not found."
-            });
-        }
-
-        if (team.status !== "REGISTERED") {
+        const trimmedReason = typeof reason === "string" ? reason.trim() : "";
+        if (requestedStatus === "REJECTED" && !trimmedReason) {
+            await session.endSession();
             return res.status(400).json({
                 success: false,
-                message: "Cannot update payment for a cancelled team."
+                message: "A reason is required when rejecting a team payment."
             });
         }
 
-        if (team.payment.status !== "PENDING") {
-            return res.status(400).json({
-                success: false,
-                message: `Payment is already ${team.payment.status}.`
+        let result;
+        await session.withTransaction(async () => {
+            const team = await Team.findById(req.params.id).session(session);
+
+            if (!team) {
+                const error = new Error("Team not found.");
+                error.statusCode = 404;
+                throw error;
+            }
+
+            if (team.status !== "REGISTERED") {
+                const error = new Error("Cannot update payment for a cancelled team.");
+                error.statusCode = 409;
+                throw error;
+            }
+
+            const currentStatus = team.payment.status;
+
+            if (currentStatus === "NOT_REQUIRED") {
+                const error = new Error("Payments marked as not required cannot be changed.");
+                error.statusCode = 409;
+                throw error;
+            }
+
+            // No-op: requested status equals current status
+            if (currentStatus === requestedStatus) {
+                result = { noOp: true, team };
+                return;
+            }
+
+            const memberCount = team.memberCount;
+
+            // --- Capacity adjustment ---
+            const releasingCapacity = requestedStatus === "REJECTED";
+            const reclaimingCapacity = currentStatus === "REJECTED";
+
+            if (releasingCapacity) {
+                // Decrement by memberCount. The counter must be >= memberCount;
+                // if the event is not found or the guard fails, abort — do not
+                // mutate payment state.
+                const decremented = await Event.findOneAndUpdate(
+                    {
+                        _id: team.event,
+                        "registration.registeredParticipants": { $gte: memberCount }
+                    },
+                    { $inc: { "registration.registeredParticipants": -memberCount } },
+                    { new: true, session }
+                );
+
+                if (!decremented) {
+                    const error = new Error(
+                        "Team payment cannot be rejected: the event capacity counter is inconsistent or the event was not found"
+                    );
+                    error.statusCode = 409;
+                    throw error;
+                }
+            } else if (reclaimingCapacity) {
+                // Increment by memberCount; fail if would exceed capacity
+                const updatedEvent = await Event.findOneAndUpdate(
+                    {
+                        _id: team.event,
+                        $expr: {
+                            $lte: [
+                                { $add: ["$registration.registeredParticipants", memberCount] },
+                                "$registration.capacity"
+                            ]
+                        }
+                    },
+                    { $inc: { "registration.registeredParticipants": memberCount } },
+                    { new: true, session }
+                );
+
+                if (!updatedEvent) {
+                    const error = new Error(
+                        "Cannot re-activate this team: the event does not have enough remaining capacity"
+                    );
+                    error.statusCode = 409;
+                    throw error;
+                }
+            }
+
+            // --- Mutation ---
+            const changedAt = new Date();
+
+            team.payment.status = requestedStatus;
+
+            if (requestedStatus === "VERIFIED") {
+                team.payment.verifiedBy = req.user._id;
+                team.payment.verifiedAt = changedAt;
+            } else {
+                team.payment.verifiedBy = null;
+                team.payment.verifiedAt = null;
+            }
+
+            // Append audit entry
+            if (!Array.isArray(team.payment.history)) {
+                team.payment.history = [];
+            }
+            team.payment.history.push({
+                fromStatus: currentStatus,
+                toStatus: requestedStatus,
+                changedBy: req.user._id,
+                changedAt,
+                reason: trimmedReason || null
+            });
+
+            await team.save({ session });
+            result = { noOp: false, team };
+        });
+
+        if (result.noOp) {
+            return res.status(200).json({
+                success: true,
+                message: `Team payment is already ${requestedStatus.toLowerCase()}. No change made.`,
+                team: {
+                    id: result.team._id,
+                    teamName: result.team.teamName,
+                    memberCount: result.team.memberCount,
+                    status: result.team.status,
+                    payment: {
+                        method: result.team.payment.method,
+                        status: result.team.payment.status,
+                        verifiedAt: result.team.payment.verifiedAt
+                    }
+                }
             });
         }
-
-        team.payment.status = status;
-        team.payment.verifiedBy =
-            status === "VERIFIED" ? req.user._id : null;
-        team.payment.verifiedAt =
-            status === "VERIFIED" ? new Date() : null;
-
-        await team.save();
 
         return res.status(200).json({
             success: true,
-            message: `Team payment ${status.toLowerCase()} successfully.`,
+            message: `Team payment ${requestedStatus.toLowerCase()} successfully.`,
             team: {
-                id: team._id,
-                teamName: team.teamName,
-                memberCount: team.memberCount,
-                status: team.status,
+                id: result.team._id,
+                teamName: result.team.teamName,
+                memberCount: result.team.memberCount,
+                status: result.team.status,
                 payment: {
-                    method: team.payment.method,
-                    status: team.payment.status,
-                    verifiedAt: team.payment.verifiedAt
+                    method: result.team.payment.method,
+                    status: result.team.payment.status,
+                    verifiedAt: result.team.payment.verifiedAt
                 }
             }
         });
 
     } catch (error) {
-        console.error("Team payment verification error:", error);
-
-        return res.status(500).json({
+        console.error("Team payment update error:", error);
+        return res.status(error.statusCode || 500).json({
             success: false,
-            message: "Failed to update team payment."
+            message: error.statusCode
+                ? error.message
+                : "Failed to update team payment."
         });
+    } finally {
+        await session.endSession();
     }
 };
 

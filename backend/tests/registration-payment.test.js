@@ -161,10 +161,19 @@ test("Role middleware retains portal and administrative permission boundaries", 
 test("Existing individual and team ADMIN verification/rejection still accept pending payments", async context => {
     for (const [model, controller] of [[Registration, updatePaymentStatus], [Team, updateTeamPaymentStatus]]) {
         for (const status of ["VERIFIED", "REJECTED"]) {
-            const record = { _id: new mongoose.Types.ObjectId(), status: "REGISTERED", payment: { method: "UPI", status: "PENDING", proofUrl }, save: async () => {} };
-            context.mock.method(model, "findById", async () => record);
+            const record = { _id: new mongoose.Types.ObjectId(), status: "REGISTERED", payment: { method: "UPI", status: "PENDING", proofUrl, history: [] }, save: async () => {} };
+            // New controller uses mongoose.startSession + .session() chaining on findById
+            context.mock.method(mongoose, "startSession", async () => ({
+                withTransaction: async cb => { await cb(); },
+                endSession: async () => {}
+            }));
+            context.mock.method(model, "findById", () => ({ session: async () => record }));
+            // New controller calls Event.findOneAndUpdate for REJECTED (capacity release)
+            context.mock.method(Event, "findOneAndUpdate", async () => ({ registration: { registeredParticipants: 4 } }));
             const res = response();
-            await controller({ params: { id: record._id.toString() }, body: { status }, user: { _id: owner, role: "ADMIN" } }, res);
+            // REJECTED now requires a reason — supply one
+            const body = status === "REJECTED" ? { status, reason: "Proof invalid" } : { status };
+            await controller({ params: { id: record._id.toString() }, body, user: { _id: owner, role: "ADMIN" } }, res);
             assert.equal(res.statusCode, 200);
             assert.equal(record.payment.status, status);
             assert.equal(record.payment.proofUrl, proofUrl);

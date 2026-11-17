@@ -49,9 +49,10 @@ const getIndividualPayments = async (req, res) => {
 
         const [records, total] = await Promise.all([
             Registration.find(filter)
-                .select("participantDetails.fullName participantDetails.mobileNumber participantDetails.collegeName participantDetails.department payment.method payment.status payment.proofUrl payment.verifiedAt createdAt user event")
+                .select("participantDetails.fullName participantDetails.mobileNumber participantDetails.collegeName participantDetails.department payment.method payment.status payment.proofUrl payment.verifiedAt payment.history createdAt user event")
                 .populate("user", "name email -_id")
                 .populate("event", "name category startDate -_id")
+                .populate("payment.history.changedBy", "name email")
                 .sort({ createdAt: -1, _id: -1 })
                 .skip((query.page - 1) * query.limit)
                 .limit(query.limit)
@@ -91,9 +92,10 @@ const getTeamPayments = async (req, res) => {
 
         const [records, total] = await Promise.all([
             Team.find(filter)
-                .select("teamName memberCount leader payment.method payment.status payment.proofUrl payment.verifiedAt createdAt status event")
+                .select("teamName memberCount leader payment.method payment.status payment.proofUrl payment.verifiedAt payment.history createdAt status event")
                 .populate("leader", "name email -_id")
                 .populate("event", "name category startDate -_id")
+                .populate("payment.history.changedBy", "name email")
                 .sort({ createdAt: -1, _id: -1 })
                 .skip((query.page - 1) * query.limit)
                 .limit(query.limit)
@@ -455,6 +457,86 @@ const deleteAdminEvent = async (req, res) => {
     }
 };
 
+const buildRegistrationSummaryPipeline = () => [
+    {
+        $lookup: {
+            from: Team.collection.name,
+            localField: "team",
+            foreignField: "_id",
+            as: "teamRecord"
+        }
+    },
+    {
+        $addFields: {
+            teamDoc: { $arrayElemAt: ["$teamRecord", 0] }
+        }
+    },
+    {
+        $addFields: {
+            isRegistrationActive: {
+                $eq: [{ $ifNull: ["$status", "REGISTERED"] }, "REGISTERED"]
+            },
+            resolvedPaymentStatus: {
+                $cond: [
+                    { $eq: [{ $ifNull: ["$team", null] }, null] },
+                    { $ifNull: ["$payment.status", "PENDING"] },
+                    { $ifNull: ["$teamDoc.payment.status", "PENDING"] }
+                ]
+            },
+            isTeamActive: {
+                $cond: [
+                    { $eq: [{ $ifNull: ["$team", null] }, null] },
+                    true,
+                    {
+                        $and: [
+                            { $ne: ["$teamDoc", null] },
+                            { $eq: [{ $ifNull: ["$teamDoc.status", "REGISTERED"] }, "REGISTERED"] }
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+    {
+        $group: {
+            _id: null,
+            totalRegistrations: {
+                $sum: {
+                    $cond: [
+                        {
+                            $and: [
+                                "$isRegistrationActive",
+                                "$isTeamActive",
+                                { $in: ["$resolvedPaymentStatus", ["VERIFIED", "NOT_REQUIRED"]] }
+                            ]
+                        },
+                        1,
+                        0
+                    ]
+                }
+            },
+            totalRegistered: {
+                $sum: { $cond: [{ $eq: [{ $ifNull: ["$status", "REGISTERED"] }, "REGISTERED"] }, 1, 0] }
+            },
+            totalCheckedIn: {
+                $sum: {
+                    $cond: [
+                        {
+                            $and: [
+                                { $eq: [{ $ifNull: ["$status", "REGISTERED"] }, "REGISTERED"] },
+                                { $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }
+                            ]
+                        },
+                        1,
+                        0
+                    ]
+                }
+            }
+        }
+    },
+    { $project: { _id: 0 } }
+];
+
 const getDashboard = async (req, res) => {
     try {
         const [eventSummary, registrationSummary, individualPayments, teamPayments, organiserCount, recentEvents] = await Promise.all([
@@ -470,32 +552,7 @@ const getDashboard = async (req, res) => {
                 },
                 { $project: { _id: 0 } }
             ]),
-            Registration.aggregate([
-                {
-                    $group: {
-                        _id: null,
-                        totalRegistrations: { $sum: 1 },
-                        totalRegistered: {
-                            $sum: { $cond: [{ $eq: [{ $ifNull: ["$status", "REGISTERED"] }, "REGISTERED"] }, 1, 0] }
-                        },
-                        totalCheckedIn: {
-                            $sum: {
-                                $cond: [
-                                    {
-                                        $and: [
-                                            { $eq: [{ $ifNull: ["$status", "REGISTERED"] }, "REGISTERED"] },
-                                            { $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }
-                                        ]
-                                    },
-                                    1,
-                                    0
-                                ]
-                            }
-                        }
-                    }
-                },
-                { $project: { _id: 0 } }
-            ]),
+            Registration.aggregate(buildRegistrationSummaryPipeline()),
             Registration.aggregate([
                 { $match: { team: null, status: "REGISTERED" } },
                 {
@@ -757,6 +814,7 @@ module.exports = {
     getAllAdminEvents,
     deleteAdminEvent,
     getDashboard,
+    buildRegistrationSummaryPipeline,
     getIndividualPayments,
     getTeamPayments,
     getAllOrganisers,
