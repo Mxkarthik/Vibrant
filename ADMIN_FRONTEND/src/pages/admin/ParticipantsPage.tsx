@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, CalendarDays, ChevronLeft, ChevronRight, Download, Eye, Mail, Phone, Search, Users, X } from "lucide-react";
+import { Building2, CalendarDays, ChevronLeft, ChevronRight, Download, Eye, Mail, Phone, Search, UserRound, Users, X } from "lucide-react";
 import { downloadParticipantExport, getEventParticipants, getParticipantEvents, getRegistrationDetails, type ParticipantFilters, type ParticipantPaymentStatus, type ParticipantRegistration, type ParticipantRegistrationStatus, type RegistrationDetailsResult } from "../../api/participants";
 import { getApiErrorMessage } from "../../api/events";
 import type { EventRecord } from "../../api/events";
@@ -135,21 +135,101 @@ function RegistrationDrawer({ registrationId, onClose }: { registrationId: strin
   const details = registration?.participantDetails;
   const team = registration?.team;
   const teamLeader = typeof team?.leader === "object" ? team.leader : null;
+  const participantName = details?.fullName || registration?.user?.name;
   return <div className="participant-drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><aside ref={dialogRef} className="participant-drawer" role="dialog" aria-modal="true" aria-labelledby="participant-drawer-title">
-    <header><div><p>REGISTRATION DETAILS</p><h2 id="participant-drawer-title">{details?.fullName || registration?.user?.name || (loading ? "Loading details…" : "Participant")}</h2></div><button className="participant-drawer-close" onClick={onClose} aria-label="Close details"><X size={18} /></button></header>
+    <header><div><p>REGISTRATION DETAILS</p><h2 id="participant-drawer-title">{participantName || (loading ? "Loading details…" : "Participant")}</h2></div><button className="participant-drawer-close" onClick={onClose} aria-label="Close details"><X size={18} /></button></header>
     {loading ? <ParticipantSkeleton /> : error ? <div className="participant-state"><p>{error}</p><Button variant="secondary" onClick={() => void load()}>Try again</Button></div> : registration && <div className="participant-drawer-content">
-      <DetailSection title="Participant information"><Detail label="Email" value={registration.user?.email} icon={<Mail size={14} />} /><Detail label="Mobile" value={details?.mobileNumber} icon={<Phone size={14} />} /><Detail label="College" value={details?.collegeName} icon={<Building2 size={14} />} /><Detail label="Department" value={details?.department} /><Detail label="Section" value={details?.section} /><Detail label="Year of study" value={details?.yearOfStudy} /><Detail label="Roll number" value={details?.rollNumber} /></DetailSection>
-      <DetailSection title="Event & registration"><Detail label="Event" value={registration.event?.name} icon={<CalendarDays size={14} />} /><Detail label="Category" value={registration.event?.category} /><Detail label="Venue" value={registration.event?.venue} /><Detail label="Registration type" value={team ? "Team" : "Individual"} /><Detail label="Registration status" value={registration.status} /><Detail label="Registered" value={formatDate(registration.createdAt)} /></DetailSection>
-      {team && <DetailSection title="Team"><Detail label="Team name" value={team.teamName} icon={<Users size={14} />} /><Detail label="Team leader" value={teamLeader?.name || (registration.isTeamLeader ? details?.fullName : undefined)} /><Detail label="Member count" value={team.memberCount?.toString()} /><Detail label="Shared payment" value={team.payment?.status} />{result.teamMembers?.length ? <div className="team-members"><strong>Team members</strong>{result.teamMembers.map((member, index) => <div key={`${member.email || member.name}-${index}`}><span>{member.name}{member.isTeamLeader ? " · Leader" : ""}</span><small>{member.email || "Email unavailable"}</small></div>)}</div> : null}</DetailSection>}
-      <DetailSection title="Payment & attendance"><Detail label="Payment method" value={team ? "Shared by team" : registration.payment?.method} /><Detail label="Payment status" value={team ? team.payment?.status : registration.payment?.status} /><Detail label="Attendance" value={registration.attendance?.isPresent ? "Checked in" : "Not checked in"} /><Detail label="Check-in time" value={formatDate(registration.attendance?.checkedInAt)} /></DetailSection>
-      {registration.customResponses?.length ? <DetailSection title="Custom responses">{registration.customResponses.map((response, index) => <Detail key={`${response.fieldKey}-${index}`} label={response.fieldKey || "Response"} value={formatValue(response.value)} />)}</DetailSection> : null}
-      <DetailSection title="Certificate"><Detail label="Issued" value={registration.certificate?.isIssued ? "Yes" : "No"} /><Detail label="Certificate ID" value={registration.certificate?.certificateId} /><Detail label="Issued date" value={formatDate(registration.certificate?.issuedAt)} /></DetailSection>
+      <DetailSection title="Participant Information">
+        <Detail label="Name" value={participantName} icon={<UserRound size={14} />} />
+        <Detail label="Email" value={registration.user?.email} icon={<Mail size={14} />} />
+        <Detail label="Mobile" value={details?.mobileNumber} icon={<Phone size={14} />} />
+        <Detail label="College" value={details?.collegeName} icon={<Building2 size={14} />} />
+        <Detail label="Department" value={details?.department} />
+        <Detail label="Section" value={details?.section} />
+        <Detail label="Year of Study" value={details?.yearOfStudy} />
+        <Detail label="Roll Number" value={details?.rollNumber} />
+      </DetailSection>
+      <DetailSection title="Event & Registration">
+        <Detail label="Event Name" value={registration.event?.name} icon={<CalendarDays size={14} />} />
+        <Detail label="Category" value={registration.event?.category} />
+        <Detail label="Venue" value={registration.event?.venue} />
+        <Detail label="Registration Type" value={team ? "Team" : "Individual"} />
+        <Detail label="Registration Status" value={registration.status ? <StatusPill value={registration.status} /> : "—"} />
+        <Detail label="Registration Date" value={formatDate(registration.createdAt)} />
+      </DetailSection>
+      {team && <DetailSection title="Team">
+        <Detail label="Team Name" value={team.teamName} icon={<Users size={14} />} />
+        <Detail label="Team Leader" value={teamLeader?.name || (registration.isTeamLeader ? participantName : undefined)} />
+        <Detail label="Member Count" value={team.memberCount?.toString()} />
+        <Detail label="Shared Payment Status" value={team.payment?.status ? <StatusPill value={team.payment.status} /> : "—"} />
+        {result.teamMembers?.length ? <div className="team-members">
+          <strong className="team-members-header">Team Members</strong>
+          {result.teamMembers.map((member, index) => (
+            <div className="team-member-card" key={`${member.email || member.name}-${index}`}>
+              <div className="team-member-card-info">
+                <div className="team-member-name-row">
+                  <span className="team-member-name">{member.name || "Member"}</span>
+                  {member.isTeamLeader && <span className="team-leader-badge">Leader</span>}
+                </div>
+                <span className="team-member-email">{member.email || "Email unavailable"}</span>
+              </div>
+            </div>
+          ))}
+        </div> : null}
+      </DetailSection>}
+      <DetailSection title="Payment & Attendance">
+        <Detail label="Payment Method" value={team ? "Shared by team" : (registration.payment?.method || "—")} />
+        <Detail label="Payment Status" value={(team ? team.payment?.status : registration.payment?.status) ? <StatusPill value={(team ? team.payment?.status : registration.payment?.status)!} /> : "—"} />
+        <Detail label="Attendance Status" value={registration.attendance?.isPresent ? <span className="participant-status status-present">Checked in</span> : <span className="participant-status status-absent">Not checked in</span>} />
+        <Detail label="Check-in Time" value={formatDate(registration.attendance?.checkedInAt)} />
+      </DetailSection>
+      {registration.customResponses?.length ? <DetailSection title="Custom Responses">
+        {registration.customResponses.map((response, index) => {
+          const stringVal = formatValue(response.value);
+          const isUrl = typeof response.value === "string" && /^https?:\/\//i.test(response.value.trim());
+          const isLong = stringVal.length > 35 || stringVal.includes("\n");
+          return <Detail
+            key={`${response.fieldKey}-${index}`}
+            label={response.fieldKey || "Response"}
+            value={isUrl ? <a href={response.value as string} target="_blank" rel="noopener noreferrer" className="participant-detail-link">{response.value as string}</a> : stringVal}
+            fullWidth={isLong}
+          />;
+        })}
+      </DetailSection> : null}
+      <DetailSection title="Certificate">
+        <Detail label="Certificate Issued" value={registration.certificate?.isIssued ? "Yes" : "No"} />
+        <Detail label="Certificate ID" value={registration.certificate?.certificateId} />
+        <Detail label="Issued Date" value={formatDate(registration.certificate?.issuedAt)} />
+      </DetailSection>
     </div>}
   </aside></div>;
 }
 
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="participant-detail-section"><h3>{title}</h3><div>{children}</div></section>; }
-function Detail({ label, value, icon }: { label: string; value?: string | null; icon?: React.ReactNode }) { return <div className="participant-detail-item">{icon}<span>{label}</span><strong>{value || "—"}</strong></div>; }
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return <section className="participant-detail-section"><h3>{title}</h3><div className="participant-detail-grid">{children}</div></section>;
+}
+function Detail({
+  label,
+  value,
+  icon,
+  fullWidth = false,
+}: {
+  label: string;
+  value?: React.ReactNode;
+  icon?: React.ReactNode;
+  fullWidth?: boolean;
+}) {
+  const displayVal = (value === null || value === undefined || value === "") ? "—" : value;
+  return (
+    <div className={`participant-detail-item${fullWidth ? " full-width" : ""}`}>
+      <span className="participant-detail-label">
+        {icon && <span className="participant-detail-icon">{icon}</span>}
+        <span>{label}</span>
+      </span>
+      <div className="participant-detail-value">{displayVal}</div>
+    </div>
+  );
+}
 function StatusPill({ value }: { value: string }) { const key = value.toLowerCase().replace(/_/g, "-"); return <span className={`participant-status status-${key}`}>{formatStatus(value)}</span>; }
 function ParticipantSkeleton() { return <div className="participant-skeleton" aria-label="Loading participants">{[0, 1, 2, 3, 4].map(item => <span key={item} />)}</div>; }
 function formatStatus(value: string) { return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase()); }

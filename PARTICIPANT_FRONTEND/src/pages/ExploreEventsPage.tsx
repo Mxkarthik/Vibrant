@@ -150,11 +150,30 @@ function EventCard({ event, registrationState, registrationLoading, registration
 
   return <article className="discover-card">
     <div className="discover-card-image">
-      {event.poster && !imageFailed ? <img src={event.poster} alt={`${event.name} poster`} loading="lazy" onError={() => setImageFailed(true)} /> : <div className="discover-poster-fallback" aria-label="No event poster available"><span>VIBRANT</span><strong>2K26</strong></div>}
-      <span className={`discover-availability ${tone}`}>{availability}</span>
+      {event.poster && !imageFailed ? (
+        <img
+          src={event.poster}
+          alt={`${event.name} poster`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        <div className="discover-poster-fallback" aria-label="No event poster available">
+          <span>VIBRANT</span>
+          <strong>2K26</strong>
+        </div>
+      )}
     </div>
     <div className="discover-card-content">
-      <div className="discover-card-meta"><span>{categoryLabels[event.category] || event.category}</span><span>{registration.mode === "TEAM" ? "Team event" : "Individual event"}</span></div>
+      <div className="discover-card-meta">
+        <div className="discover-meta-tags">
+          <span className="discover-category-tag">{categoryLabels[event.category] || event.category}</span>
+          <span className="discover-meta-separator">·</span>
+          <span className="discover-mode-tag">{registration.mode === "TEAM" ? "Team event" : "Individual event"}</span>
+        </div>
+        <span className={`discover-availability ${tone}`}>{availability}</span>
+      </div>
       <h2>{event.name}</h2>
       <p className="discover-description">{event.description}</p>
       <dl className="discover-event-facts">
@@ -163,17 +182,23 @@ function EventCard({ event, registrationState, registrationLoading, registration
         <div><dt>Venue</dt><dd>{event.venue || "Venue to be announced"}</dd></div>
         <div><dt>Fee</dt><dd>{registration.registrationFee === 0 ? "Free" : formatFee(registration.registrationFee)}</dd></div>
       </dl>
-      <div className="discover-card-footer"><span>Deadline · {formatDate(registration.deadline)}</span><Link className="discover-details-link" to={`/events/${event._id}`}>View details <span aria-hidden="true">↗</span></Link></div>
-      <div className="discover-card-registration">
-        {registrationState.kind === "INDIVIDUAL" || registrationState.kind === "TEAM"
-          ? <><button className="discover-register-button is-registered" type="button" disabled>{registrationState.kind === "TEAM" ? "Team Registered" : "Already Registered"}</button><Link to={existingRegistrationPath(registrationState)}>{registrationState.kind === "TEAM" && registrationState.registration.isTeamLeader && registrationState.registration.teamId ? "View team" : "View registration"}<span aria-hidden="true">↗</span></Link></>
-          : registrationState.kind === "CANCELLED"
-            ? <><button className="discover-register-button" type="button" disabled>Previous Registration</button><Link to={existingRegistrationPath(registrationState)}>View record<span aria-hidden="true">↗</span></Link></>
-            : registrationState.kind === "UNKNOWN_TEAM"
-              ? <><button className="discover-register-button" type="button" disabled>Registration unavailable</button><Link to="/my-registrations">My Registrations<span aria-hidden="true">↗</span></Link></>
-              : registrationLoading || registrationError || !isOpen
-                ? <button className="discover-register-button" type="button" disabled>{registrationLoading ? "Checking registration…" : registrationError ? "Status unavailable" : availability}</button>
-                : <Link className="discover-register-button" to={`/events/${event._id}/${registration.mode === "TEAM" ? "register-team" : "register"}`}>{registration.mode === "TEAM" ? "Register Your Team" : "Register Individually"}<span aria-hidden="true">→</span></Link>}
+      <div className="discover-card-deadline">
+        <span>Registration deadline</span>
+        <strong>{formatDate(registration.deadline)}</strong>
+      </div>
+      <div className="discover-card-actions">
+        <div className="discover-primary-action">
+          {registrationState.kind === "INDIVIDUAL" || registrationState.kind === "TEAM"
+            ? <><button className="discover-register-button is-registered" type="button" disabled>{registrationState.kind === "TEAM" ? "Team Registered" : "Already Registered"}</button><Link className="discover-registered-link" to={existingRegistrationPath(registrationState)}>{registrationState.kind === "TEAM" && registrationState.registration.isTeamLeader && registrationState.registration.teamId ? "View team" : "View registration"}<span aria-hidden="true">↗</span></Link></>
+            : registrationState.kind === "CANCELLED"
+              ? <><button className="discover-register-button" type="button" disabled>Previous Registration</button><Link className="discover-registered-link" to={existingRegistrationPath(registrationState)}>View record<span aria-hidden="true">↗</span></Link></>
+              : registrationState.kind === "UNKNOWN_TEAM"
+                ? <><button className="discover-register-button" type="button" disabled>Registration unavailable</button><Link className="discover-registered-link" to="/my-registrations">My Registrations<span aria-hidden="true">↗</span></Link></>
+                : registrationLoading || registrationError || !isOpen
+                  ? <button className="discover-register-button" type="button" disabled>{registrationLoading ? "Checking registration…" : registrationError ? "Status unavailable" : availability}</button>
+                  : <Link className="discover-register-button" to={`/events/${event._id}/${registration.mode === "TEAM" ? "register-team" : "register"}`}>{registration.mode === "TEAM" ? "Register Your Team" : "Register Individually"}<span aria-hidden="true">→</span></Link>}
+        </div>
+        <Link className="discover-details-link" to={`/events/${event._id}`}>View details <span aria-hidden="true">↗</span></Link>
       </div>
     </div>
   </article>;

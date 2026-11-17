@@ -6,6 +6,8 @@ import { getEventDetails, type EventDetails, type EventRegistrationField } from 
 import { createTeamRegistration, type CreatedTeamReceipt, type TeamMemberRegistrationRequest } from "../api/teamService";
 import { existingRegistrationPath, getEventRegistrationState, useMyRegistrations } from "../hooks/useMyRegistrations";
 import RegistrationPaymentFields, { PaymentProofPreview } from "../components/registration/RegistrationPaymentFields";
+import { useToast } from "../components/toast/ToastContext";
+import { scrollToFirstInvalid, getTeamErrorTitle, getTeamValidationSummary } from "../utils/registrationToastHelper";
 
 type Answer = string | string[];
 type TeamMemberForm = TeamMemberRegistrationRequest;
@@ -30,6 +32,7 @@ const blankMember = (name = ""): TeamMemberForm => ({
 export default function TeamRegistrationPage() {
   const { eventId } = useParams();
   const { user } = useAuth();
+  const toast = useToast();
   const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations({ preserveContentOnRefresh: true });
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -185,7 +188,17 @@ export default function TeamRegistrationPage() {
     formEvent.preventDefault();
     const result = validate();
     setErrors(result.errors);
-    if (!result.request) return;
+    if (!result.request) {
+      const errorEntries = Object.entries(result.errors);
+      if (errorEntries.length === 1) {
+        const [key, msg] = errorEntries[0];
+        toast.error(msg, getTeamErrorTitle(key));
+      } else {
+        toast.error(getTeamValidationSummary(result.errors), "Incomplete Team Details");
+      }
+      scrollToFirstInvalid();
+      return;
+    }
     setSubmitError(null);
     setStep("review");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -195,15 +208,24 @@ export default function TeamRegistrationPage() {
     if (!eventId || !event || submitLock.current || submitting) return;
     const result = validate();
     setErrors(result.errors);
-    if (!result.request) { setStep("form"); return; }
+    if (!result.request) {
+      setStep("form");
+      toast.error("Please resolve the errors in your team details before submitting.", "Validation Error");
+      scrollToFirstInvalid();
+      return;
+    }
     submitLock.current = true;
     setSubmitting(true);
     setUploadProgress(0);
     setSubmitError(null);
     try {
-      setReceipt(await createTeamRegistration(eventId, result.request, paymentMethod === "UPI" ? paymentProof || undefined : undefined, setUploadProgress));
+      const receipt = await createTeamRegistration(eventId, result.request, paymentMethod === "UPI" ? paymentProof || undefined : undefined, setUploadProgress);
+      setReceipt(receipt);
+      toast.success(`Team "${receipt.teamName}" registered successfully!`, "Registration Confirmed");
     } catch (error: unknown) {
-      setSubmitError(getTeamSubmitError(error));
+      const msg = getTeamSubmitError(error);
+      setSubmitError(msg);
+      toast.error(msg, "Registration Failed");
     } finally {
       submitLock.current = false;
       setSubmitting(false);

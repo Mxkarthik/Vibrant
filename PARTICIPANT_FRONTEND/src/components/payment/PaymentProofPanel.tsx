@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import { useToast } from "../toast/ToastContext";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -23,6 +24,7 @@ export default function PaymentProofPanel({ title, amount, method, status, proof
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     if (!file) { setPreviewUrl(null); return; }
@@ -37,9 +39,20 @@ export default function PaymentProofPanel({ title, amount, method, status, proof
     setMessage(null);
     setFile(null);
     if (!candidate) return;
-    if (!ALLOWED_TYPES.has(candidate.type)) { setError("Choose a JPG, PNG, or WEBP image."); return; }
-    if (candidate.size > MAX_FILE_SIZE) { setError("The image must be 5 MB or smaller."); return; }
+    if (!ALLOWED_TYPES.has(candidate.type)) {
+      const msg = "Unsupported image format. Please use JPG, PNG, or WEBP.";
+      setError(msg);
+      toast.error(msg, "Invalid File Format");
+      return;
+    }
+    if (candidate.size > MAX_FILE_SIZE) {
+      const msg = "The image must be 5 MB or smaller.";
+      setError(msg);
+      toast.error(msg, "File Too Large");
+      return;
+    }
     setFile(candidate);
+    toast.info(`Selected "${candidate.name}" for upload.`, "File Selected");
   };
 
   const submit = async () => {
@@ -52,9 +65,13 @@ export default function PaymentProofPanel({ title, amount, method, status, proof
       const result = await onUpload(file, setProgress);
       onUploaded(result.proofUrl);
       setFile(null);
-      setMessage("Payment proof submitted. It is awaiting administrator review; this upload does not verify payment.");
+      const msg = "Payment proof submitted. It is awaiting administrator review; this upload does not verify payment.";
+      setMessage(msg);
+      toast.success(msg, "Proof Uploaded");
     } catch (uploadError: unknown) {
-      setError(getUploadError(uploadError));
+      const err = getUploadError(uploadError);
+      setError(err);
+      toast.error(err, "Upload Failed");
     } finally {
       setUploading(false);
     }

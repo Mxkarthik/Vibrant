@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useToast } from "../toast/ToastContext";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -25,14 +26,24 @@ interface Props {
 
 export default function RegistrationPaymentFields({ method, onMethodChange, qrUrl, amount, screenshot, onScreenshotChange, cashReceiverName, onCashReceiverNameChange, error, onError, shared = false }: Props) {
   const fileInput = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+
   useEffect(() => {
     // React state owns the File; restore the native filename after review/edit
     // or a UPI/CASH round trip mounts a new input element.
     if (fileInput.current) syncFileInput(fileInput.current, screenshot);
   }, [screenshot, method]);
+
   return <>
     <div className="registration-payment-options">
-      <label className={`registration-payment-option${method === "UPI" ? " is-selected" : ""}${!qrUrl ? " is-unavailable" : ""}`}>
+      <label
+        className={`registration-payment-option${method === "UPI" ? " is-selected" : ""}${!qrUrl ? " is-unavailable" : ""}`}
+        onClick={() => {
+          if (!qrUrl) {
+            toast.warning("UPI is unavailable because this event has no configured payment QR. Please choose cash.", "UPI Unavailable");
+          }
+        }}
+      >
         <input type="radio" name={shared ? "team-payment-method" : "paymentMethod"} checked={method === "UPI"} disabled={!qrUrl} onChange={() => onMethodChange("UPI")} />
         <span><strong>UPI</strong><small>{qrUrl ? "Pay using this event’s QR and submit one payment screenshot." : "Unavailable: the event administrator has not configured a UPI QR image."}</small></span>
       </label>
@@ -51,9 +62,22 @@ export default function RegistrationPaymentFields({ method, onMethodChange, qrUr
       <label className="registration-input registration-payment-file"><span>Payment screenshot <i>*</i></span><input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" onChange={event => {
         const file = event.currentTarget.files?.[0];
         if (!file) return;
-        if (!ALLOWED_TYPES.has(file.type)) { syncFileInput(event.currentTarget, screenshot); onError("Choose a JPG, JPEG, PNG or WEBP payment screenshot."); return; }
-        if (file.size > MAX_FILE_SIZE) { syncFileInput(event.currentTarget, screenshot); onError("Payment screenshots must be 5 MB or smaller."); return; }
-        onError(""); onScreenshotChange(file);
+        if (!ALLOWED_TYPES.has(file.type)) {
+          syncFileInput(event.currentTarget, screenshot);
+          const msg = "Unsupported image format. Please use JPG, PNG or WEBP.";
+          onError(msg);
+          toast.error(msg, "Invalid File Format");
+          return;
+        }
+        if (file.size > MAX_FILE_SIZE) {
+          syncFileInput(event.currentTarget, screenshot);
+          const msg = "The selected image exceeds the 5 MB limit. Please select a smaller image.";
+          onError(msg);
+          toast.error(msg, "File Too Large");
+          return;
+        }
+        onError("");
+        onScreenshotChange(file);
       }} /><small>JPG, JPEG, PNG or WEBP · up to 5 MB. Your screenshot uploads when you submit the final registration.</small></label>
       {screenshot && <div className="registration-payment-selected-file"><PaymentProofPreview file={screenshot} /><span>{screenshot.name}</span><button type="button" onClick={() => { if (fileInput.current) fileInput.current.value = ""; onScreenshotChange(null); onError(""); }}>Remove</button></div>}
     </div>}
