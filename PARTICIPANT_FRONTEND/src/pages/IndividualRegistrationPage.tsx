@@ -6,6 +6,8 @@ import { getEventDetails, type EventDetails, type EventRegistrationField } from 
 import { createIndividualRegistration, type IndividualRegistrationRequest, type RegistrationReceipt } from "../api/registrationService";
 import { existingRegistrationPath, getEventRegistrationState, useMyRegistrations } from "../hooks/useMyRegistrations";
 import RegistrationPaymentFields, { PaymentProofPreview } from "../components/registration/RegistrationPaymentFields";
+import { useToast } from "../components/toast/ToastContext";
+import { scrollToFirstInvalid, getIndividualErrorTitle, getIndividualValidationSummary } from "../utils/registrationToastHelper";
 
 type FieldValue = string | string[];
 type ParticipantDetails = IndividualRegistrationRequest["participantDetails"];
@@ -34,6 +36,7 @@ const detailFields: Array<{ key: keyof ParticipantDetails; label: string; type?:
 export default function IndividualRegistrationPage() {
   const { eventId } = useParams();
   const { user } = useAuth();
+  const toast = useToast();
   const { registrations, loading: registrationsLoading, error: registrationsError, refresh: refreshRegistrations } = useMyRegistrations({ preserveContentOnRefresh: true });
   const [event, setEvent] = useState<EventDetails | null>(null);
   const [loading, setLoading] = useState(true);
@@ -146,7 +149,17 @@ export default function IndividualRegistrationPage() {
     submitEvent.preventDefault();
     const validation = validate();
     setErrors(validation.errors);
-    if (!validation.request) return;
+    if (!validation.request) {
+      const errorEntries = Object.entries(validation.errors);
+      if (errorEntries.length === 1) {
+        const [key, msg] = errorEntries[0];
+        toast.error(msg, getIndividualErrorTitle(key));
+      } else {
+        toast.error(getIndividualValidationSummary(validation.errors), "Incomplete Registration");
+      }
+      scrollToFirstInvalid();
+      return;
+    }
     setSubmitError(null);
     setStep("review");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -158,6 +171,8 @@ export default function IndividualRegistrationPage() {
     setErrors(validation.errors);
     if (!validation.request) {
       setStep("form");
+      toast.error("Please correct the errors in your registration details before submitting.", "Validation Error");
+      scrollToFirstInvalid();
       return;
     }
     submitLock.current = true;
@@ -165,9 +180,13 @@ export default function IndividualRegistrationPage() {
     setUploadProgress(0);
     setSubmitError(null);
     try {
-      setReceipt(await createIndividualRegistration(eventId, validation.request, paymentMethod === "UPI" ? paymentProof || undefined : undefined, setUploadProgress));
+      const res = await createIndividualRegistration(eventId, validation.request, paymentMethod === "UPI" ? paymentProof || undefined : undefined, setUploadProgress);
+      setReceipt(res);
+      toast.success("Your registration has been submitted successfully!", "Registration Confirmed");
     } catch (requestError) {
-      setSubmitError(getSubmissionError(requestError));
+      const msg = getSubmissionError(requestError);
+      setSubmitError(msg);
+      toast.error(msg, "Registration Failed");
     } finally {
       submitLock.current = false;
       setSubmitting(false);

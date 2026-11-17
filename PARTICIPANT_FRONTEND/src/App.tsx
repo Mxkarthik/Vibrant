@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
+import { ToastProvider } from "./components/toast/ToastContext";
 import { ParticipantLoginRoute, ParticipantNotFound, RequireParticipant } from "./auth/RouteGuards";
 import ParticipantLayout from "./components/layout/ParticipantLayout";
 import IntroExperience from "./components/intro/IntroExperience";
@@ -30,30 +31,32 @@ export default function App() {
 
   return <BrowserRouter>
     <AuthProvider>
-      <Routes>
-        <Route path="/" element={<ParticipantHomePage />} />
-        <Route path="/login" element={<ParticipantLoginRoute><ParticipantHomePage openAuthOnMount /></ParticipantLoginRoute>} />
-        <Route path="/auth/callback" element={<OAuthCallbackPage />} />
-        <Route element={<RequireParticipant />}>
-          <Route element={<ParticipantLayout />}>
-            <Route path="/dashboard" element={<ParticipantDashboardPage />} />
-            <Route path="/events" element={<ExploreEventsPage />} />
-            <Route path="/events/:eventId" element={<EventDetailsPage />} />
-            <Route path="/events/:eventId/register" element={<IndividualRegistrationPage />} />
-            <Route path="/events/:eventId/register-team" element={<TeamRegistrationPage />} />
-            <Route path="/my-registrations" element={<MyRegistrationsPage />} />
-            <Route path="/my-attendance" element={<MyAttendancePage />} />
-            <Route path="/my-certificates" element={<MyCertificatesPage />} />
-            <Route path="/registrations" element={<MyRegistrationsPage />} />
-            <Route path="/registrations/:registrationId" element={<RegistrationReceiptPage />} />
-            <Route path="/registrations/:registrationId/ticket" element={<DigitalTicketPage />} />
-            <Route path="/teams/:teamId" element={<TeamDetailsPage />} />
-            <Route path="/teams/:teamId/tickets" element={<TeamTicketsPage />} />
-            <Route path="/profile" element={<ParticipantPlaceholderPage type="profile" />} />
+      <ToastProvider>
+        <Routes>
+          <Route path="/" element={<ParticipantHomePage />} />
+          <Route path="/login" element={<ParticipantLoginRoute><ParticipantHomePage openAuthOnMount /></ParticipantLoginRoute>} />
+          <Route path="/auth/callback" element={<OAuthCallbackPage />} />
+          <Route element={<RequireParticipant />}>
+            <Route element={<ParticipantLayout />}>
+              <Route path="/dashboard" element={<ParticipantDashboardPage />} />
+              <Route path="/events" element={<ExploreEventsPage />} />
+              <Route path="/events/:eventId" element={<EventDetailsPage />} />
+              <Route path="/events/:eventId/register" element={<IndividualRegistrationPage />} />
+              <Route path="/events/:eventId/register-team" element={<TeamRegistrationPage />} />
+              <Route path="/my-registrations" element={<MyRegistrationsPage />} />
+              <Route path="/my-attendance" element={<MyAttendancePage />} />
+              <Route path="/my-certificates" element={<MyCertificatesPage />} />
+              <Route path="/registrations" element={<MyRegistrationsPage />} />
+              <Route path="/registrations/:registrationId" element={<RegistrationReceiptPage />} />
+              <Route path="/registrations/:registrationId/ticket" element={<DigitalTicketPage />} />
+              <Route path="/teams/:teamId" element={<TeamDetailsPage />} />
+              <Route path="/teams/:teamId/tickets" element={<TeamTicketsPage />} />
+              <Route path="/profile" element={<ParticipantPlaceholderPage type="profile" />} />
+            </Route>
           </Route>
-        </Route>
-        <Route path="*" element={<ParticipantNotFound />} />
-      </Routes>
+          <Route path="*" element={<ParticipantNotFound />} />
+        </Routes>
+      </ToastProvider>
     </AuthProvider>
   </BrowserRouter>;
 }
