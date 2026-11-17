@@ -73,14 +73,34 @@ passport.use(
                     return done(null, user);
                 }
 
-                // Do not automatically link an existing email
-                // to a different Google account.
+                // Link or verify existing user by verified Google email
                 const existingEmail = await User.findOne({ email });
 
                 if (existingEmail) {
-                    return done(null, false, {
-                        message: "Email already registered with another account"
-                    });
+                    if (!existingEmail.isActive) {
+                        return done(null, false, {
+                            message: "Account is inactive"
+                        });
+                    }
+
+                    // If existing user has no Google ID yet, link it
+                    if (!existingEmail.googleId) {
+                        existingEmail.googleId = profile.id;
+                        if (!existingEmail.profilePicture && profile.photos?.[0]?.value) {
+                            existingEmail.profilePicture = profile.photos[0].value;
+                        }
+                        await existingEmail.save();
+                        return done(null, existingEmail);
+                    }
+
+                    // If existing user is registered with a different Google account ID
+                    if (existingEmail.googleId !== profile.id) {
+                        return done(null, false, {
+                            message: "Email already registered with another account"
+                        });
+                    }
+
+                    return done(null, existingEmail);
                 }
 
                 // Create a new participant
