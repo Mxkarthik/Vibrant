@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: vibrant-participant-frontend
+    runtime: static
+    buildCommand: npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://vibrant-qkl1.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

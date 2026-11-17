@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000").replace(/\/$/, "");
+import { GOOGLE_AUTH_PARTICIPANT_URL } from "../../api/client";
 
 export default function GoogleAuthModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [mounted, setMounted] = useState(open);
@@ -71,7 +70,7 @@ export default function GoogleAuthModal({ open, onClose }: { open: boolean; onCl
         <p className="auth-kicker">PARTICIPANT REGISTRATION</p>
         <h2 id="auth-title">Your journey starts here.</h2>
         <p id="auth-description" className="auth-description">Continue to register for the celebration.</p>
-        <a className="google-signin" href={`${apiBase}/api/auth/google/participant`}>
+        <a className="google-signin" href={GOOGLE_AUTH_PARTICIPANT_URL}>
           <GoogleMark /> Continue with Google <span aria-hidden="true">↗</span>
         </a>
         <p id="auth-privacy" className="auth-privacy">Google authentication helps us identify your participant account securely. VIBRANT never receives your Google password.</p>
