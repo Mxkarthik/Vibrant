@@ -4,16 +4,35 @@ const Event = require("../models/Event");
 const Team = require("../models/Team");
 const Registration = require("../models/Registration");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
+const deleteCloudinaryImage = require("../utils/deleteCloudinaryImage");
+const isValidImageFile = require("../utils/validateImageBuffer");
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const normalizeObjectId = value => {
+    const id = value && typeof value === "object" && value._id ? value._id : value;
+    return mongoose.isValidObjectId(id) ? new mongoose.Types.ObjectId(id.toString()) : null;
+};
+const sameObjectId = (left, right) => {
+    const leftId = normalizeObjectId(left);
+    const rightId = normalizeObjectId(right);
+    return Boolean(leftId && rightId && leftId.equals(rightId));
+};
 
 const registerTeam = async (req, res) => {
     let session;
+    let uploadedProof = null;
+    let registrationCommitted = false;
+    let paymentDetails = {};
     try {
         if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
             return res.status(400).json({ success: false, message: "Invalid request body." });
         }
 
-        const { teamName, members, paymentMethod } = req.body;
+        let { teamName, members, paymentMethod, cashReceiverName } = req.body;
+        try {
+            if (typeof members === "string") members = JSON.parse(members);
+        } catch {
+            return res.status(400).json({ success: false, message: "Team member details are invalid." });
+        }
 
         // Basic validation
         if (
@@ -157,6 +176,40 @@ const registerTeam = async (req, res) => {
                 !["UPI", "CASH"].includes(paymentMethod)
             ) {
                 const error = new Error("Choose UPI or CASH for team payment.");
+                error.statusCode = 400;
+                throw error;
+            }
+
+            if (event.registration.registrationFee > 0 && paymentMethod === "UPI") {
+                if (!event.paymentQrUrl) {
+                    const error = new Error("UPI payment is unavailable because the administrator has not configured an event payment QR.");
+                    error.statusCode = 400;
+                    throw error;
+                }
+                if (!req.file || !isValidImageFile(req.file)) {
+                    const error = new Error("Upload one valid JPG, PNG or WEBP payment screenshot for the shared team payment.");
+                    error.statusCode = 400;
+                    throw error;
+                }
+                if (!uploadedProof) {
+                    try { uploadedProof = await uploadToCloudinary(req.file.buffer, "vibrant/payment-proofs"); }
+                    catch { const error = new Error("Payment proof could not be uploaded. No team registration was created."); error.statusCode = 502; throw error; }
+                }
+                paymentDetails = { proofUrl: uploadedProof.secureUrl };
+            } else if (event.registration.registrationFee > 0 && paymentMethod === "CASH") {
+                if (req.file) {
+                    const error = new Error("A shared payment screenshot is only accepted for UPI payments.");
+                    error.statusCode = 400;
+                    throw error;
+                }
+                if (typeof cashReceiverName !== "string" || !cashReceiverName.trim() || cashReceiverName.trim().length > 120) {
+                    const error = new Error("Enter the name of the person who received the shared cash payment (maximum 120 characters).");
+                    error.statusCode = 400;
+                    throw error;
+                }
+                paymentDetails = { cashReceiverName: cashReceiverName.trim() };
+            } else if (req.file) {
+                const error = new Error("Payment proof is not accepted for this registration.");
                 error.statusCode = 400;
                 throw error;
             }
@@ -373,7 +426,8 @@ const registerTeam = async (req, res) => {
                         memberCount,
                         payment: {
                             method: paymentMethod,
-                            status: paymentStatus
+                            status: paymentStatus,
+                            ...paymentDetails
                         }
                     }
                 ],
@@ -405,6 +459,7 @@ const registerTeam = async (req, res) => {
                 session
             });
         });
+        registrationCommitted = true;
 
         const createdTeam = await Team.findOne({
             event: req.params.id,
@@ -447,6 +502,10 @@ const registerTeam = async (req, res) => {
 
     } finally {
         if (session) await session.endSession();
+        if (!registrationCommitted && uploadedProof?.publicId) {
+            try { await deleteCloudinaryImage(uploadedProof.publicId); }
+            catch (cleanupError) { console.error("Unable to remove abandoned team proof upload:", cleanupError.message); }
+        }
     }
 };
 
@@ -459,8 +518,8 @@ const getLeaderTeamById = async (req, res) => {
         }
 
         const team = await Team.findOne({ _id: id, leader: req.user._id })
-            .select("event teamName leader memberCount status payment.method payment.status payment.proofUrl createdAt")
-            .populate("event", "name category poster venue startDate endDate status registration.registrationFee")
+            .select("event teamName leader memberCount status payment.method payment.status payment.proofUrl payment.cashReceiverName createdAt")
+            .populate("event", "name category poster venue startDate endDate status paymentQrUrl registration.registrationFee")
             .lean();
         if (!team) {
             return res.status(404).json({ success: false, message: "Team not found." });
@@ -493,6 +552,81 @@ const getLeaderTeamById = async (req, res) => {
     } catch (error) {
         console.error("Get leader team error:", error);
         return res.status(500).json({ success: false, message: "Failed to fetch team details." });
+    }
+};
+
+const getLeaderTeamTickets = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ success: false, code: "INVALID_TEAM", message: "Invalid team reference." });
+        }
+
+        const team = await Team.findById(id)
+            .select("leader event teamName memberCount status payment.status")
+            .populate("event", "name category venue startDate endDate status")
+            .lean();
+        if (!team) {
+            return res.status(404).json({ success: false, code: "TEAM_NOT_FOUND", message: "Team not found." });
+        }
+        if (!sameObjectId(team.leader, req.user?._id)) {
+            return res.status(403).json({ success: false, code: "TEAM_LEADER_REQUIRED", message: "Only this team's leader can access its tickets." });
+        }
+        if (!team.event) {
+            return res.status(404).json({ success: false, code: "TEAM_EVENT_NOT_FOUND", message: "The event for this team could not be found." });
+        }
+        if (team.status !== "REGISTERED") {
+            return res.status(409).json({ success: false, code: "TEAM_CANCELLED", message: "This team registration is cancelled and has no valid tickets." });
+        }
+        if (team.event.status === "CANCELLED") {
+            return res.status(409).json({ success: false, code: "EVENT_CANCELLED", message: "This event was cancelled. Its tickets are not valid." });
+        }
+
+        const paymentStatus = team.payment?.status || "NOT_REQUIRED";
+        if (!["VERIFIED", "NOT_REQUIRED"].includes(paymentStatus)) {
+            return res.status(409).json({ success: false, code: "PAYMENT_NOT_ELIGIBLE", message: "Team tickets are available after the shared payment is verified." });
+        }
+
+        const registrations = await Registration.find({ team: team._id, status: "REGISTERED" })
+            .select("qrToken participantDetails.fullName status isTeamLeader")
+            .sort({ isTeamLeader: -1, createdAt: 1 })
+            .lean();
+        const tickets = registrations
+            .filter(registration => typeof registration.qrToken === "string" && /^[a-f0-9]{64}$/i.test(registration.qrToken))
+            .map(registration => ({
+                registrationId: registration._id,
+                attendeeName: registration.participantDetails?.fullName || "Participant",
+                isTeamLeader: Boolean(registration.isTeamLeader),
+                registrationStatus: registration.status,
+                qrToken: registration.qrToken
+            }));
+
+        if (!tickets.length) {
+            return res.status(409).json({ success: false, code: "QR_UNAVAILABLE", message: "No valid ticket QR codes are available for this team." });
+        }
+
+        return res.status(200).json({
+            success: true,
+            team: {
+                name: team.teamName,
+                memberCount: team.memberCount,
+                paymentStatus,
+                ticketStatus: team.event.status === "COMPLETED" ? "HISTORICAL" : "VALID",
+                event: {
+                    name: team.event.name,
+                    category: team.event.category,
+                    venue: team.event.venue,
+                    startDate: team.event.startDate,
+                    endDate: team.event.endDate,
+                    status: team.event.status
+                }
+            },
+            tickets,
+            unavailableCount: Math.max(0, registrations.length - tickets.length)
+        });
+    } catch (error) {
+        console.error("Get team tickets error:", error);
+        return res.status(500).json({ success: false, message: "Failed to load team tickets." });
     }
 };
 
@@ -662,6 +796,7 @@ const uploadTeamPaymentProof = async (req, res) => {
 module.exports = {
     registerTeam,
     getLeaderTeamById,
+    getLeaderTeamTickets,
     updateTeamPaymentStatus,
     uploadTeamPaymentProof
 };

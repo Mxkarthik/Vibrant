@@ -5,6 +5,7 @@ const generateToken = require("../utils/generateToken");
 const protect = require("../middleware/authMiddleware");
 const router = express.Router();
 const authorizeRoles = require("../middleware/roleMiddleware");
+const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
 
 const adminFrontendUrl = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173").split(",")[0].trim().replace(/\/$/, "");
 const participantFrontendUrl = (process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174").split(",")[0].trim().replace(/\/$/, "");
@@ -123,7 +124,7 @@ router.get(
 router.get(
     "/participant-test",
     protect,
-    authorizeRoles("PARTICIPANT"),
+    authorizeParticipantPortal,
     (req, res) => {
         res.status(200).json({
             success: true,

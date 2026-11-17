@@ -1,0 +1,58 @@
+.ticket-page-wrap, .team-tickets-page { display: grid; width: min(100%, 860px); gap: 16px; margin: 0 auto; }
+.ticket-page-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ticket-page-actions .participant-button { min-height: 38px; font-size: 10px; }
+.digital-ticket-card { display: grid; overflow: hidden; border: 1px solid #dce4e9; border-radius: 8px; background: #fff; box-shadow: 0 8px 28px #172b3a0b; break-inside: avoid; }
+.digital-ticket-brand { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 23px; border-bottom: 1px solid #e8edf0; }
+.digital-ticket-brand > span { color: var(--navy); font-size: 14px; font-weight: 800; letter-spacing: -.04em; }
+.digital-ticket-brand > span > span { margin-left: 3px; color: var(--blue); }
+.digital-ticket-brand small { color: #82909a; font-size: 9px; font-weight: 700; letter-spacing: .13em; }
+.digital-ticket-event { padding: 20px 24px 16px; border-bottom: 1px dashed #dce4e9; }
+.digital-ticket-event .participant-eyebrow { margin: 0 0 7px; }
+.digital-ticket-event h2 { margin: 0; color: var(--navy); font-size: clamp(20px,4vw,29px); font-weight: 800; letter-spacing: -.045em; overflow-wrap: anywhere; }
+.digital-ticket-event p:not(.participant-eyebrow) { margin: 7px 0 0; color: #637683; font-size: 11px; line-height: 1.5; }
+.digital-ticket-content { display: grid; grid-template-columns: minmax(0,1fr) 275px; align-items: center; gap: 18px; padding: 23px 24px; }
+.digital-ticket-person { display: grid; gap: 7px; }
+.digital-ticket-person > span, .digital-ticket-footer span { color: #84919a; font-size: 8px; font-weight: 700; letter-spacing: .1em; }
+.digital-ticket-person strong { color: #263e4c; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+.digital-ticket-person small { color: #6b7d88; font-size: 10px; }
+.digital-ticket-qr { display: grid; justify-items: center; gap: 7px; padding: 12px; border: 1px solid #e8edf0; border-radius: 6px; background: #fff; }
+.digital-ticket-qr svg { display: block; width: min(100%,224px); height: auto; shape-rendering: crispEdges; }
+.digital-ticket-qr p { margin: 0; color: #768791; font-size: 9px; text-align: center; }
+.digital-ticket-footer { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 10px; padding: 14px 24px 18px; border-top: 1px dashed #dce4e9; }
+.digital-ticket-footer > div { display: grid; min-width: 0; gap: 5px; }
+.digital-ticket-footer strong { overflow-wrap: anywhere; color: #405866; font-size: 10px; font-weight: 600; }
+.digital-ticket-footer .is-valid { color: #16845b; }
+.digital-ticket-footer .is-historical { color: #73838e; }
+.digital-ticket-historical-note { margin: 0; padding: 10px 24px; color: #637683; background: #f5f8fa; font-size: 10px; }
+.ticket-state { display: grid; min-height: 45vh; align-content: center; justify-items: center; gap: 10px; padding: 25px; border: 1px solid var(--participant-border); border-radius: 7px; background: #fff; text-align: center; }
+.ticket-state h1 { margin: 0; color: var(--navy); font-size: clamp(25px,4vw,34px); }
+.ticket-state > p:not(.participant-eyebrow) { max-width: 460px; margin: 0 0 5px; color: var(--participant-muted); font-size: 12px; line-height: 1.65; }
+.ticket-state > div { display: flex; align-items: center; gap: 9px; }
+.team-tickets-heading { padding: 18px 21px; border: 1px solid var(--participant-border); border-radius: 6px; background: #fff; }
+.team-tickets-heading .participant-eyebrow { margin: 0 0 5px; }
+.team-tickets-heading h1 { margin: 0; color: var(--navy); font-size: 24px; letter-spacing: -.04em; }
+.team-tickets-heading p:last-child { margin: 6px 0 0; color: var(--participant-muted); font-size: 11px; }
+.team-ticket-list { display: grid; gap: 14px; }
+.ticket-partial-note { margin: 0; padding: 10px 12px; border: 1px solid #e8e0cf; border-radius: 5px; color: #6d531d; background: #fbf8f1; font-size: 10px; line-height: 1.55; }
+.my-registration-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 13px; }
+@media (max-width: 620px) {
+  .digital-ticket-content { grid-template-columns: 1fr; justify-items: center; padding: 17px; }
+  .digital-ticket-person { width: 100%; text-align: center; }
+  .digital-ticket-footer { grid-template-columns: 1fr 1fr; padding: 13px 17px; }
+  .digital-ticket-footer > div:first-child { grid-column: 1 / -1; }
+  .digital-ticket-brand, .digital-ticket-event { padding-right: 17px; padding-left: 17px; }
+  .my-registration-actions { justify-content: flex-start; }
+}
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  html, body { min-width: 0 !important; background: #fff !important; }
+  body * { visibility: hidden !important; }
+  .ticket-page-wrap, .team-tickets-page, .ticket-page-wrap *, .team-tickets-page * { visibility: visible !important; }
+  .ticket-page-wrap, .team-tickets-page { position: absolute !important; inset: 0 auto auto 0 !important; display: block !important; width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
+  .ticket-page-actions, .team-tickets-heading, .ticket-partial-note { display: none !important; }
+  .digital-ticket-card { width: 100% !important; margin: 0 0 8mm !important; border: 1px solid #bfcbd2 !important; border-radius: 0 !important; box-shadow: none !important; break-inside: avoid !important; page-break-inside: avoid !important; }
+  .team-ticket-list { display: block !important; }
+  .team-ticket-list .digital-ticket-card { break-after: page !important; page-break-after: always !important; }
+  .team-ticket-list .digital-ticket-card:last-child { break-after: auto !important; page-break-after: auto !important; }
+  .digital-ticket-qr svg { width: 58mm !important; height: 58mm !important; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}

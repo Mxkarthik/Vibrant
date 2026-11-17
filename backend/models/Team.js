@@ -45,6 +45,13 @@ const teamSchema = new mongoose.Schema(
                 default: null
             },
 
+            cashReceiverName: {
+                type: String,
+                trim: true,
+                maxlength: 120,
+                default: null
+            },
+
             verifiedBy: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",

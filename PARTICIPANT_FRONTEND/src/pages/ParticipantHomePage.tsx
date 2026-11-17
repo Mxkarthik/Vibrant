@@ -11,15 +11,15 @@ const navItems = [
 ] as const;
 
 const categories = [
-  { name: "Technical", number: "01", image: "photo-1581092921461-eab62e97a780", position: "center" },
-  { name: "Cultural", number: "02", image: "photo-1523580494863-6f3031224c94", position: "center" },
-  { name: "Workshops", number: "03", image: "photo-1523580494863-6f3031224c94", position: "35% center" },
-  { name: "Sports", number: "04", image: "photo-1581092921461-eab62e97a780", position: "60% center" },
-  { name: "Competitions", number: "05", image: "photo-1581092921461-eab62e97a780", position: "30% center" },
+  { name: "Technical", number: "01", image: "innovation-challenge.webp", position: "center" },
+  { name: "Cultural", number: "02", image: "cultural-celebration.webp", position: "center" },
+  { name: "Workshops", number: "03", image: "ai-workshop.webp", position: "center" },
+  { name: "Sports", number: "04", image: "campus-sports.webp", position: "center" },
+  { name: "Competitions", number: "05", image: "innovation-challenge.webp", position: "center" },
 ];
 
-export default function ParticipantHomePage() {
-  const [authOpen, setAuthOpen] = useState(false);
+export default function ParticipantHomePage({ openAuthOnMount = false }: { openAuthOnMount?: boolean }) {
+  const [authOpen, setAuthOpen] = useState(openAuthOnMount);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -61,11 +61,12 @@ export default function ParticipantHomePage() {
           type="button"
           aria-label={menuOpen ? "Close navigation" : "Open navigation"}
           aria-expanded={menuOpen}
+          aria-controls="participant-navigation"
           onClick={() => setMenuOpen((open) => !open)}
         >
           <span /><span />
         </button>
-        <nav className={`site-nav${menuOpen ? " is-open" : ""}`} aria-label="Main navigation">
+        <nav id="participant-navigation" className={`site-nav${menuOpen ? " is-open" : ""}`} aria-label="Main navigation">
           {navItems.map(([label, id]) => <a key={id} href={`#${id}`} onClick={closeMenu}>{label}</a>)}
           <button className="button button-dark nav-register" type="button" onClick={() => { closeMenu(); setAuthOpen(true); }}>
             Register Now <ArrowIcon />
@@ -85,16 +86,15 @@ export default function ParticipantHomePage() {
           <div className="anniversary-note"><span className="anniversary-number">20</span><span><strong>YEARS</strong><small>OF LEARNING &amp; POSSIBILITY</small></span></div>
         </div>
         <div className="hero-visual reveal-image">
-          <img src="https://images.unsplash.com/photo-1581092921461-eab62e97a780?auto=format&fit=crop&w=1500&q=85" alt="Engineering students exploring a technical project" fetchPriority="high" />
-          <div className="hero-image-caption"><span>ONE CAMPUS. COUNTLESS MOMENTS.</span><span>VIBRANT2K26</span></div>
-          <div className="hero-image-index" aria-hidden="true">01 <span>/</span> 20</div>
+          <img src="/images/diet/campus-sports.webp" alt="Students gather outdoors for a sports activity at DIET" fetchPriority="high" />
+          <div className="hero-image-caption"><span>CAMPUS LIFE AT DIET</span><span>VIBRANT2K26</span></div>
         </div>
         <a className="scroll-cue" href="#legacy"><span />SCROLL TO DISCOVER</a>
       </section>
 
       <section className="legacy-section section-shell" id="legacy" aria-labelledby="legacy-title">
         <div className="legacy-photo reveal-image">
-          <img src="https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=1100&q=85" alt="Students learning and sharing ideas in a classroom" loading="lazy" />
+          <img src="/images/diet/decennial-legacy.webp" alt="DIET's Decennial Celebrations" loading="lazy" />
           <span className="photo-caption">A JOURNEY OF LEARNING</span>
         </div>
         <div className="legacy-copy reveal-on-scroll">
@@ -130,7 +130,7 @@ export default function ParticipantHomePage() {
         <div className="category-grid" id="events">
           {categories.map((category) => (
             <article className="category-card reveal-on-scroll" key={category.name}>
-              <img src={`https://images.unsplash.com/${category.image}?auto=format&fit=crop&w=750&q=80`} alt={`${category.name} festival experience`} loading="lazy" style={{ objectPosition: category.position }} />
+              <img src={`/images/diet/${category.image}`} alt={`${category.name} at Dadi Institute of Engineering and Technology`} loading="lazy" style={{ objectPosition: category.position }} />
               <div className="category-shade" />
               <span className="category-index">{category.number}</span>
               <h3>{category.name}</h3>
@@ -143,7 +143,7 @@ export default function ParticipantHomePage() {
 
       <section className="campus-section" aria-labelledby="campus-title">
         <div className="campus-image reveal-image">
-          <img src="https://images.unsplash.com/photo-1523580494863-6f3031224c94?auto=format&fit=crop&w=1900&q=85" alt="Students sharing a learning moment together" loading="lazy" />
+          <img src="/images/diet/vibrant-annual-day.webp" alt="Students and faculty together at a VIBRANT DIET Annual Day celebration" loading="lazy" />
           <div className="campus-overlay" />
           <div className="campus-copy reveal-on-scroll"><p className="eyebrow eyebrow-light"><span className="eyebrow-rule" /> TOGETHER AT DIET</p><h2 id="campus-title">Different people.<br />Different dreams.<br /><em>One celebration.</em></h2><p>Bring your curiosity, your point of view and the people you want beside you. This is a campus celebration made for sharing.</p></div>
           <span className="campus-side-note">VIBRANT2K26 · DIET ANAKAPALLE</span>
@@ -162,6 +162,7 @@ export default function ParticipantHomePage() {
         <div className="footer-top">
           <a className="footer-brand" href="#home"><span>VIBRANT<span>2K26</span></span><small>DADI INSTITUTE OF ENGINEERING &amp; TECHNOLOGY</small></a>
           <nav className="footer-nav" aria-label="Footer navigation">{navItems.map(([label, id]) => <a key={id} href={`#${id}`}>{label}</a>)}</nav>
+          <div className="footer-contact"><a href="mailto:admissions@diet.edu.in">admissions@diet.edu.in</a><a href="tel:+919963981111">+91 99639 81111</a></div>
           <a className="footer-register" href="#home" onClick={(event) => { event.preventDefault(); setAuthOpen(true); }}>Register <span aria-hidden="true">↗</span></a>
         </div>
         <div className="footer-bottom"><span>DIET · ANAKAPALLE, ANDHRA PRADESH</span><span>ONE CAMPUS. COUNTLESS MOMENTS.</span><span>VIBRANT2K26</span></div>

@@ -21,6 +21,7 @@ export interface EventRecord {
   description: string;
   category: EventCategory;
   poster?: string | null;
+  paymentQrUrl?: string | null;
   venue: string;
   startDate: string;
   endDate: string;
@@ -66,6 +67,7 @@ export interface CreateEventPayload {
   description: string;
   category: EventCategory;
   poster?: string | null;
+  paymentQrUrl?: string | null;
   venue: string;
   startDate: string;
   endDate: string;
@@ -99,6 +101,17 @@ export async function uploadEventPoster(file: File, onProgress: (percentage: num
   const form = new FormData();
   form.append("poster", file);
   const { data } = await api.post<{ success: true; secureUrl: string }>("/events/poster", form, {
+    onUploadProgress: progress => {
+      if (progress.total) onProgress(Math.round((progress.loaded / progress.total) * 100));
+    },
+  });
+  return data;
+}
+
+export async function uploadEventPaymentQr(file: File, onProgress: (percentage: number) => void) {
+  const form = new FormData();
+  form.append("paymentQr", file);
+  const { data } = await api.post<{ success: true; secureUrl: string }>("/events/payment-qr", form, {
     onUploadProgress: progress => {
       if (progress.total) onProgress(Math.round((progress.loaded / progress.total) * 100));
     },

@@ -2,9 +2,11 @@
 const express = require("express");
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
+const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
 const upload = require("../middleware/uploadMiddleware");
+const paymentProofUpload = require("../middleware/paymentProofUpload");
 const {registerForEvent} = require("../controllers/registrationController");
-const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent, uploadEventPoster } = require("../controllers/eventController");
+const { createEvent , getAllEvents,getAllEventsWithFilters , getEventById , updateEvent , cancelEvent , completeEvent, uploadEventPoster, uploadEventPaymentQr } = require("../controllers/eventController");
 const {
     getEventParticipants,getEventAttendanceReport,exportEventParticipants
 } = require("../controllers/registrationController");
@@ -20,6 +22,17 @@ const parseEventPoster = (req, res, next) => {
         return res.status(400).json({ success: false, message });
     });
 };
+const parseEventPaymentQr = (req, res, next) => {
+    upload.single("paymentQr")(req, res, error => {
+        if (!error) return next();
+        const message = error.code === "LIMIT_FILE_SIZE"
+            ? "Payment QR images must be 5 MB or smaller"
+            : error.message === "Only JPG, PNG and WEBP images are allowed"
+                ? error.message
+                : "The payment QR image could not be read";
+        return res.status(400).json({ success: false, message });
+    });
+};
 const { registerTeam } = require("../controllers/teamRegistrationController");
 const {
     issueEventCertificates
@@ -32,6 +45,14 @@ router.post(
     authorizeRoles("ADMIN"),
     parseEventPoster,
     uploadEventPoster
+);
+
+router.post(
+    "/payment-qr",
+    protect,
+    authorizeRoles("ADMIN"),
+    parseEventPaymentQr,
+    uploadEventPaymentQr
 );
 
 router.post(
@@ -55,7 +76,7 @@ router.get(
     exportEventParticipants
 );
 
-router.post("/:id/register", protect, authorizeRoles("PARTICIPANT"), registerForEvent);
+router.post("/:id/register", protect, authorizeParticipantPortal, paymentProofUpload, registerForEvent);
 
 router.get(
     "/filtered",
@@ -116,7 +137,7 @@ router.get(
     getEventAttendanceReport
 );
 
-router.post("/:id/register-team", protect, authorizeRoles("PARTICIPANT"), registerTeam);
+router.post("/:id/register-team", protect, authorizeParticipantPortal, paymentProofUpload, registerTeam);
 
 router.get("/:id/participants", protect, getEventParticipants);
 

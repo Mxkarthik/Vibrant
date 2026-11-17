@@ -128,6 +128,7 @@ const getParticipantDashboard = async (req, res) => {
                         startDate: "$event.startDate",
                         registeredAt: "$createdAt",
                         registrationType: { $cond: [{ $ne: ["$team", null] }, "TEAM", "INDIVIDUAL"] },
+                        certificateIssued: { $eq: [{ $ifNull: ["$certificate.isIssued", false] }, true] },
                         registrationStatus: "$status",
                         paymentStatus: {
                             $cond: [
