@@ -25,3 +25,46 @@ export const api = axios.create({
   withCredentials: true,
   headers: { Accept: "application/json" },
 });
+
+export const TOKEN_STORAGE_KEY = "vibrant_token";
+
+export function getStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredToken(token: string): void {
+  try {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  } catch (error) {
+    console.error("Failed to store auth token:", error);
+  }
+  api.defaults.headers.common.Authorization = `Bearer ${token}`;
+}
+
+export function clearStoredToken(): void {
+  try {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup errors
+  }
+  delete api.defaults.headers.common.Authorization;
+}
+
+// Initialize Authorization header from existing stored token if available
+const initialToken = getStoredToken();
+if (initialToken) {
+  api.defaults.headers.common.Authorization = `Bearer ${initialToken}`;
+}
+
+// Request interceptor to attach Bearer token dynamically
+api.interceptors.request.use((config) => {
+  const token = getStoredToken();
+  if (token && !config.headers.Authorization) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});

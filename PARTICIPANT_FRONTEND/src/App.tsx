@@ -24,8 +24,26 @@ import "./styles/participant-app.css";
 import "./styles/ticket.css";
 
 export default function App() {
-  const [showIntro, setShowIntro] = useState(true);
-  const completeIntro = useCallback(() => setShowIntro(false), []);
+  const [showIntro, setShowIntro] = useState(() => {
+    if (typeof window !== "undefined") {
+      if (window.location.pathname.startsWith("/auth/callback")) {
+        return false;
+      }
+      if (sessionStorage.getItem("vibrant_intro_seen")) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const completeIntro = useCallback(() => {
+    try {
+      sessionStorage.setItem("vibrant_intro_seen", "1");
+    } catch {
+      // Ignore storage errors
+    }
+    setShowIntro(false);
+  }, []);
 
   if (showIntro) return <IntroExperience onComplete={completeIntro} />;
 

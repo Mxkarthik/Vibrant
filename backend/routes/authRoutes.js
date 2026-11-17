@@ -14,7 +14,7 @@ const participantFrontendUrl = (process.env.PARTICIPANT_FRONTEND_URL || "http://
  * Resolves the Participant Frontend URL.
  * In production (NODE_ENV === "production"):
  *   - Uses PARTICIPANT_FRONTEND_URL if set and does not point to localhost.
- *   - Defaults to the production Vercel deployment: https://vibrant-orcin.vercel.app.
+ *   - Defaults to the production Vercel deployment: https://dietvibrant.vercel.app.
  * In development:
  *   - Uses PARTICIPANT_FRONTEND_URL or defaults to http://localhost:5174.
  */
@@ -27,7 +27,7 @@ const getParticipantFrontendUrl = () => {
     }
 
     if (isProduction) {
-        return "https://vibrant-orcin.vercel.app";
+        return "https://dietvibrant.vercel.app";
     }
 
     return (raw || "http://localhost:5174").replace(/\/+$/, "");
@@ -54,10 +54,11 @@ const getAdminFrontendUrl = () => {
 
     return (raw || "http://localhost:5173").replace(/\/+$/, "");
 };
-const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
+const isProduction = process.env.NODE_ENV === "production";
+const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax")).toLowerCase();
 const authCookieOptions = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production" || cookieSameSite === "none",
+    secure: isProduction || cookieSameSite === "none",
     sameSite: cookieSameSite,
     ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {}),
     path: "/"
@@ -120,7 +121,10 @@ router.get("/google/callback", (req, res, next) => {
             ...authCookieOptions,
             maxAge: 60 * 60 * 1000,
         });
-        return res.redirect(302, portal === "participant" ? `${frontendUrl}/auth/callback` : `${frontendUrl}/admin`);
+        if (portal === "participant") {
+            return res.redirect(302, `${frontendUrl}/auth/callback?token=${encodeURIComponent(token)}`);
+        }
+        return res.redirect(302, `${frontendUrl}/admin`);
     } catch (error) {
         console.error("JWT generation error:", error);
         const failurePath = portal === "participant" ? "/auth/callback?error=google_auth_failed" : "/login?error=google_auth_failed";

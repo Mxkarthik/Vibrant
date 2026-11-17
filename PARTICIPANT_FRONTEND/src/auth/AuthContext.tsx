@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import axios from "axios";
-import { api } from "../api/client";
+import { api, clearStoredToken } from "../api/client";
 
 export type ParticipantRole = "PARTICIPANT" | "ADMIN" | "ORGANISER";
 export function isParticipantPortalRole(role: unknown): role is ParticipantRole {
@@ -39,6 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data.user;
     } catch (requestError) {
       if (axios.isAxiosError(requestError) && requestError.response?.status === 401) {
+        clearStoredToken();
         setUser(null);
       } else {
         setError("We couldn't verify your session. Check your connection and try again.");
@@ -50,7 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    await api.post("/auth/logout");
+    clearStoredToken();
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Swallowed on logout so local state is cleared reliably
+    }
     setUser(null);
     setError(null);
   }, []);

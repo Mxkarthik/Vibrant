@@ -3,8 +3,13 @@ const User = require("../models/User");
 
 const protect = async (req, res, next) => {
     try {
-        // 1. Extract JWT from cookie
-        const token = req.cookies?.vibrant_token;
+        // 1. Extract JWT from cookie or Authorization header (Bearer token)
+        const authHeader = req.headers.authorization;
+        const bearerToken = (authHeader && authHeader.startsWith("Bearer "))
+            ? authHeader.slice(7).trim()
+            : null;
+
+        const token = req.cookies?.vibrant_token || bearerToken;
 
         if (!token) {
             return res.status(401).json({

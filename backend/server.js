@@ -12,8 +12,10 @@ const app = express();
 // Trust reverse proxy (Render load balancer) so req.secure and secure cookies work behind TLS termination
 app.set("trust proxy", 1);
 
-const defaultOrigins = process.env.NODE_ENV === "production"
-    ? ["https://vibrant-orcin.vercel.app"]
+const isProduction = process.env.NODE_ENV === "production";
+
+const defaultOrigins = isProduction
+    ? ["https://dietvibrant.vercel.app", "https://vibrant-orcin.vercel.app"]
     : ["http://localhost:5173", "http://localhost:5174"];
 
 const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_FRONTEND_URL]
@@ -24,7 +26,7 @@ const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_F
     .filter(Boolean);
 
 const configuredOrigins = Array.from(new Set([...defaultOrigins, ...customOrigins]));
-const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
+const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax")).toLowerCase();
 
 app.use(cors({
     origin(origin, callback) {
@@ -60,7 +62,7 @@ app.use(
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production" || cookieSameSite === "none",
+            secure: isProduction || cookieSameSite === "none",
             sameSite: cookieSameSite,
             ...(process.env.AUTH_COOKIE_DOMAIN ? { domain: process.env.AUTH_COOKIE_DOMAIN } : {})
         }
