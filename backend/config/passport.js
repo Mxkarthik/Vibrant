@@ -3,16 +3,43 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 
 const User = require("../models/User");
 
+/**
+ * Resolves the Google OAuth callback URL.
+ * In production (NODE_ENV === "production"):
+ *   - Uses GOOGLE_CALLBACK_URL if explicitly set and not pointing to localhost.
+ *   - Defaults to the deployed Render backend URL: https://vibrant-qkl1.onrender.com/api/auth/google/callback
+ *     (or dynamically derives from RENDER_EXTERNAL_URL if set by Render).
+ * In development:
+ *   - Preserves GOOGLE_CALLBACK_URL or defaults to http://localhost:${PORT}/api/auth/google/callback.
+ */
+const resolveGoogleCallbackUrl = () => {
+    const raw = process.env.GOOGLE_CALLBACK_URL?.trim();
+    const isProduction = process.env.NODE_ENV === "production";
 
-console.log("Google Client ID:", !!process.env.GOOGLE_CLIENT_ID);
-console.log("Google Callback URL:", process.env.GOOGLE_CALLBACK_URL);
+    if (raw && (!isProduction || !raw.includes("localhost"))) {
+        return raw;
+    }
+
+    if (isProduction) {
+        const origin = (process.env.RENDER_EXTERNAL_URL || "https://vibrant-qkl1.onrender.com").replace(/\/+$/, "");
+        return `${origin}/api/auth/google/callback`;
+    }
+
+    const port = process.env.PORT || 5000;
+    return raw || `http://localhost:${port}/api/auth/google/callback`;
+};
+
+const callbackURL = resolveGoogleCallbackUrl();
+
+console.log("Google Client ID configured:", !!process.env.GOOGLE_CLIENT_ID);
+console.log("Google Callback URL:", callbackURL);
 
 passport.use(
     new GoogleStrategy(
     {
         clientID: process.env.GOOGLE_CLIENT_ID,
         clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-        callbackURL: process.env.GOOGLE_CALLBACK_URL,
+        callbackURL,
 
         // Default OAuth scopes
         scope: ["openid", "email", "profile"]

@@ -9,6 +9,9 @@ const cors = require("cors");
 dotenv.config();
 const app = express();
 
+// Trust reverse proxy (Render load balancer) so req.secure and secure cookies work behind TLS termination
+app.set("trust proxy", 1);
+
 const configuredOrigins = [process.env.ADMIN_FRONTEND_URL || "http://localhost:5173", process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174"]
     .join(",")
     .split(",")

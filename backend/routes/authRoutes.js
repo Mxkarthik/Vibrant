@@ -23,24 +23,31 @@ const authCookieOptions = {
 // ==========================================
 
 const setAuthPortal = (portal) => (req, res, next) => {
-    req.session.authPortal = portal;
+    if (req.session) {
+        req.session.authPortal = portal;
+    }
     next();
 };
 
-const startGoogleAuth = passport.authenticate("google", {
-    scope: ["openid", "email", "profile"],
-    session: false
-});
+const startGoogleAuth = (portal) => (req, res, next) => {
+    passport.authenticate("google", {
+        scope: ["openid", "email", "profile"],
+        state: portal,
+        session: false
+    })(req, res, next);
+};
 
-router.get("/google", setAuthPortal("admin"), startGoogleAuth);
-router.get("/google/participant", setAuthPortal("participant"), startGoogleAuth);
+router.get("/google", setAuthPortal("admin"), startGoogleAuth("admin"));
+router.get("/google/participant", setAuthPortal("participant"), startGoogleAuth("participant"));
 
 // ==========================================
 // 2. Google OAuth Callback + JWT Generation
 // ==========================================
 
 router.get("/google/callback", (req, res, next) => {
-    const portal = req.session?.authPortal === "participant" ? "participant" : "admin";
+    const portal = req.query.state === "participant" || req.session?.authPortal === "participant"
+        ? "participant"
+        : "admin";
     const frontendUrl = portal === "participant" ? participantFrontendUrl : adminFrontendUrl;
     const failureUrl = portal === "participant"
         ? `${frontendUrl}/auth/callback?error=google_auth_failed`
@@ -56,7 +63,9 @@ router.get("/google/callback", (req, res, next) => {
         return next();
     })(req, res, next);
 }, (req, res) => {
-    const portal = req.authPortal === "participant" ? "participant" : "admin";
+    const portal = req.authPortal === "participant" || req.query.state === "participant" || req.session?.authPortal === "participant"
+        ? "participant"
+        : "admin";
     const frontendUrl = portal === "participant" ? participantFrontendUrl : adminFrontendUrl;
     if (req.session) delete req.session.authPortal;
 
