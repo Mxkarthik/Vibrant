@@ -79,6 +79,7 @@ const startGoogleAuth = (portal) => (req, res, next) => {
     passport.authenticate("google", {
         scope: ["openid", "email", "profile"],
         state: portal,
+        prompt: "select_account",
         session: false
     })(req, res, next);
 };

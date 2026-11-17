@@ -7,7 +7,7 @@ import { setStoredToken } from "../api/client";
 export default function OAuthCallbackPage() {
   const { user, loading, error, refreshUser } = useAuth();
   const navigate = useNavigate();
-  const [googleFailed] = useState(() => {
+  const [googleFailed, setGoogleFailed] = useState(() => {
     if (typeof window === "undefined") return false;
     return new URLSearchParams(window.location.search).get("error") === "google_auth_failed";
   });
@@ -20,17 +20,39 @@ export default function OAuthCallbackPage() {
 
     const params = new URLSearchParams(window.location.search);
     const token = params.get("token");
+    const errorParam = params.get("error");
+
+    if (errorParam === "google_auth_failed") {
+      setGoogleFailed(true);
+      setIsProcessingToken(false);
+      return;
+    }
 
     if (token) {
       setStoredToken(token);
       window.history.replaceState({}, document.title, window.location.pathname);
-      refreshUser().finally(() => {
+      refreshUser()
+        .then((currentUser) => {
+          if (currentUser && isParticipantPortalRole(currentUser.role)) {
+            navigate("/dashboard", { replace: true });
+          }
+        })
+        .finally(() => {
+          setIsProcessingToken(false);
+        });
+      return;
+    }
+
+    refreshUser()
+      .then((currentUser) => {
+        if (currentUser && isParticipantPortalRole(currentUser.role)) {
+          navigate("/dashboard", { replace: true });
+        }
+      })
+      .finally(() => {
         setIsProcessingToken(false);
       });
-    } else {
-      setIsProcessingToken(false);
-    }
-  }, [refreshUser]);
+  }, [navigate, refreshUser]);
 
   useEffect(() => {
     if (loading || isProcessingToken || googleFailed || error || !user) return;
