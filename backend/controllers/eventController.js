@@ -3,6 +3,7 @@ const Event = require("../models/Event");
 const mongoose = require("mongoose");
 const crypto = require("node:crypto");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
+const isValidImageFile = require("../utils/validateImageBuffer");
 
 const uploadEventPoster = async (req, res) => {
     try {
@@ -12,10 +13,7 @@ const uploadEventPoster = async (req, res) => {
         }
 
         const bytes = file.buffer;
-        const isJpeg = file.mimetype === "image/jpeg" && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-        const isPng = file.mimetype === "image/png" && bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-        const isWebp = file.mimetype === "image/webp" && bytes.length >= 12 && bytes.toString("ascii", 0, 4) === "RIFF" && bytes.toString("ascii", 8, 12) === "WEBP";
-        if (!isJpeg && !isPng && !isWebp) {
+        if (!isValidImageFile(file)) {
             return res.status(400).json({ success: false, message: "The selected file is not a valid JPG, PNG or WEBP image" });
         }
 
@@ -24,6 +22,26 @@ const uploadEventPoster = async (req, res) => {
     } catch (error) {
         console.error("Event poster upload error:", error.message);
         return res.status(502).json({ success: false, message: "The event poster could not be uploaded. Please try again." });
+    }
+};
+
+const uploadEventPaymentQr = async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) {
+            return res.status(400).json({ success: false, message: "Select a JPG, PNG or WEBP payment QR image" });
+        }
+
+        const bytes = file.buffer;
+        if (!isValidImageFile(file)) {
+            return res.status(400).json({ success: false, message: "The selected file is not a valid JPG, PNG or WEBP image" });
+        }
+
+        const uploaded = await uploadToCloudinary(bytes, "vibrant/event-payment-qrs");
+        return res.status(201).json({ success: true, secureUrl: uploaded.secureUrl });
+    } catch (error) {
+        console.error("Event payment QR upload error:", error.message);
+        return res.status(502).json({ success: false, message: "The event payment QR image could not be uploaded. Please try again." });
     }
 };
 
@@ -54,6 +72,7 @@ const createEvent = async (req, res) => {
             description,
             category,
             poster,
+            paymentQrUrl,
             venue,
             startDate,
             endDate,
@@ -213,6 +232,7 @@ const createEvent = async (req, res) => {
             description,
             category,
             poster,
+            paymentQrUrl,
             venue,
             startDate,
             endDate,
@@ -395,6 +415,7 @@ const updateEvent = async (req, res) => {
             description,
             category,
             poster,
+            paymentQrUrl,
             venue,
             startDate,
             endDate,
@@ -406,6 +427,12 @@ const updateEvent = async (req, res) => {
         if (description !== undefined) event.description = description;
         if (category !== undefined) event.category = category;
         if (poster !== undefined) event.poster = poster;
+        if (paymentQrUrl !== undefined) {
+            if (paymentQrUrl !== null && (typeof paymentQrUrl !== "string" || !/^https:\/\//i.test(paymentQrUrl))) {
+                return res.status(400).json({ success: false, message: "Payment QR image must be a secure HTTPS URL" });
+            }
+            event.paymentQrUrl = paymentQrUrl;
+        }
         if (venue !== undefined) event.venue = venue;
         if (startDate !== undefined) event.startDate = startDate;
         if (endDate !== undefined) event.endDate = endDate;
@@ -537,17 +564,32 @@ const getAllEventsWithFilters = async (req, res) => {
         const {
             search,
             category,
-            page = 1,
-            limit = 10
+            page = "1",
+            limit = "10",
+            filter: availabilityFilter,
+            sortBy = "latest"
         } = req.query;
+
+        if (
+            (search !== undefined && (typeof search !== "string" || search.length > 120)) ||
+            (category !== undefined && typeof category !== "string") ||
+            (availabilityFilter !== undefined && typeof availabilityFilter !== "string") ||
+            typeof sortBy !== "string" ||
+            typeof page !== "string" ||
+            typeof limit !== "string" ||
+            !/^\d+$/.test(page) ||
+            !/^\d+$/.test(limit)
+        ) {
+            return res.status(400).json({ success: false, message: "Invalid event query parameters" });
+        }
 
         // Validate pagination
         const pageNumber = Number(page);
         const limitNumber = Number(limit);
 
         if (
-            !Number.isInteger(pageNumber) ||
-            !Number.isInteger(limitNumber) ||
+            !Number.isSafeInteger(pageNumber) ||
+            !Number.isSafeInteger(limitNumber) ||
             pageNumber < 1 ||
             limitNumber < 1 ||
             limitNumber > 50
@@ -558,7 +600,7 @@ const getAllEventsWithFilters = async (req, res) => {
             });
         }
 
-        const filter = {
+        const eventFilter = {
             status: "PUBLISHED"
         };
 
@@ -579,33 +621,71 @@ const getAllEventsWithFilters = async (req, res) => {
                 });
             }
 
-            filter.category = category;
+            eventFilter.category = category;
         }
 
-        // Search by event name
+        // Search event name, description, or category.
         if (search && search.trim()) {
             const escapedSearch = search.trim().replace(
                 /[.*+?^${}()|[\]\\]/g,
                 "\\$&"
             );
 
-            filter.name = {
+            const searchExpression = {
                 $regex: escapedSearch,
                 $options: "i"
             };
+            eventFilter.$or = [
+                { name: searchExpression },
+                { description: searchExpression },
+                { category: searchExpression }
+            ];
+        }
+
+        const now = new Date();
+        const allowedFilters = ["upcoming", "open", "closing-soon", "free", "paid"];
+        if (availabilityFilter && !allowedFilters.includes(availabilityFilter)) {
+            return res.status(400).json({ success: false, message: "Invalid event filter" });
+        }
+        if (availabilityFilter === "upcoming") {
+            eventFilter.endDate = { $gte: now };
+        } else if (availabilityFilter === "open") {
+            eventFilter["registration.deadline"] = { $gt: now };
+            eventFilter.$expr = { $lt: ["$registration.registeredParticipants", "$registration.capacity"] };
+        } else if (availabilityFilter === "closing-soon") {
+            eventFilter["registration.deadline"] = { $gt: now, $lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) };
+            eventFilter.$expr = { $lt: ["$registration.registeredParticipants", "$registration.capacity"] };
+        } else if (availabilityFilter === "free") {
+            eventFilter["registration.registrationFee"] = 0;
+        } else if (availabilityFilter === "paid") {
+            eventFilter["registration.registrationFee"] = { $gt: 0 };
+        }
+
+        const allowedSorts = ["upcoming", "latest", "name"];
+        if (!allowedSorts.includes(sortBy)) {
+            return res.status(400).json({ success: false, message: "Invalid event sort order" });
         }
 
         const skip = (pageNumber - 1) * limitNumber;
 
         const [events, totalEvents] = await Promise.all([
-            Event.find(filter)
-                .sort({ createdAt: -1 })
-                .skip(skip)
-                .limit(limitNumber)
-                .populate("createdBy", "name")
-                .lean(),
+            sortBy === "upcoming"
+                ? Event.aggregate([
+                    { $match: eventFilter },
+                    { $addFields: { _isUpcoming: { $gte: ["$endDate", now] } } },
+                    { $sort: { _isUpcoming: -1, startDate: 1, createdAt: -1 } },
+                    { $skip: skip },
+                    { $limit: limitNumber },
+                    { $project: { _isUpcoming: 0 } }
+                ]).then(events => Event.populate(events, { path: "createdBy", select: "name" }))
+                : Event.find(eventFilter)
+                    .sort(sortBy === "name" ? { name: 1, _id: 1 } : { createdAt: -1 })
+                    .skip(skip)
+                    .limit(limitNumber)
+                    .populate("createdBy", "name")
+                    .lean(),
 
-            Event.countDocuments(filter)
+            Event.countDocuments(eventFilter)
         ]);
 
         return res.status(200).json({
@@ -687,5 +767,5 @@ const completeEvent = async (req, res) => {
 
 
 module.exports = {
-    createEvent, getAllEvents, getAllEventsWithFilters, getEventById, updateEvent, cancelEvent, completeEvent, uploadEventPoster
+    createEvent, getAllEvents, getAllEventsWithFilters, getEventById, updateEvent, cancelEvent, completeEvent, uploadEventPoster, uploadEventPaymentQr
 };

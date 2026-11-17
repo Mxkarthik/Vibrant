@@ -19,6 +19,8 @@
 .poster-upload-progress small { min-width: 95px; color: #657b89; font-size: 11px; text-align: right; }
 .poster-upload-error { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0; color: #a3453d; font-size: 12px; font-weight: 400; line-height: 1.45; }
 .poster-upload-error .ui-button { min-height: 32px; padding-inline: 8px; color: #315b79; }
+.event-poster-field .payment-qr-preview { width: min(100%, 430px); height: auto; min-height: 122px; }
+.event-poster-field .payment-qr-preview img { width: 110px; height: 110px; flex-basis: 110px; object-fit: contain; }
 @media (max-width: 520px) {
   .event-poster-field { grid-column: auto; }
   .poster-preview { align-items: flex-start; flex-wrap: wrap; }

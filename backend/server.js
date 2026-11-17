@@ -9,7 +9,8 @@ const cors = require("cors");
 dotenv.config();
 const app = express();
 
-const configuredOrigins = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173")
+const configuredOrigins = [process.env.ADMIN_FRONTEND_URL || "http://localhost:5173", process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174"]
+    .join(",")
     .split(",")
     .map(origin => origin.trim().replace(/\/$/, ""))
     .filter(Boolean);
@@ -37,6 +38,7 @@ const eventRoutes = require("./routes/eventRoutes");
 const registrationRoutes = require("./routes/registrationRoutes");
 const teamRoutes = require("./routes/teamRoutes");
 const adminRoutes = require("./routes/adminRoutes");
+const participantRoutes = require("./routes/participantRoutes");
 
 app.use(express.json());
 app.use(cookieParser());
@@ -75,6 +77,7 @@ app.use("/api/events", eventRoutes);
 app.use("/api/registrations", registrationRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/participant", participantRoutes);
 
 app.use((error, req, res, next) => {
     if (error.message === "Origin is not allowed by CORS") {

@@ -33,6 +33,15 @@ const eventSchema = new mongoose.Schema(
             default: null
         },
 
+        paymentQrUrl: {
+            type: String,
+            default: null,
+            validate: {
+                validator: value => value == null || /^https:\/\//i.test(value),
+                message: "Payment QR image must use a secure HTTPS URL"
+            }
+        },
+
         venue: {
             type: String,
             required: true,

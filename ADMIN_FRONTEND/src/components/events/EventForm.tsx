@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Image, Save } from "lucide-react";
 import type { CreateEventPayload, EventCategory, EventRecord, RegistrationField, RegistrationMode } from "../../api/events";
-import { createEvent, getApiErrorMessage, updateEvent, uploadEventPoster } from "../../api/events";
+import { createEvent, getApiErrorMessage, updateEvent, uploadEventPaymentQr, uploadEventPoster } from "../../api/events";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import PageHeader from "../admin/PageHeader";
@@ -15,7 +15,7 @@ const ALLOWED_POSTER_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const localValue = (value?: string) => value ? new Date(new Date(value).getTime() - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : "";
 
 interface FormValues {
-  name: string; description: string; category: EventCategory | ""; poster: string; venue: string;
+  name: string; description: string; category: EventCategory | ""; poster: string; paymentQrUrl: string; venue: string;
   startDate: string; endDate: string; deadline: string; mode: RegistrationMode; fee: string;
   capacity: string; minTeamSize: string; maxTeamSize: string;
 }
@@ -23,7 +23,7 @@ interface FormValues {
 function valuesFromEvent(event?: EventRecord): FormValues {
   return {
     name: event?.name ?? "", description: event?.description ?? "", category: event?.category ?? "",
-    poster: event?.poster ?? "", venue: event?.venue ?? "", startDate: localValue(event?.startDate),
+    poster: event?.poster ?? "", paymentQrUrl: event?.paymentQrUrl ?? "", venue: event?.venue ?? "", startDate: localValue(event?.startDate),
     endDate: localValue(event?.endDate), deadline: localValue(event?.registration.deadline),
     mode: event?.registration.mode ?? "INDIVIDUAL", fee: String(event?.registration.registrationFee ?? 0),
     capacity: String(event?.registration.capacity ?? ""), minTeamSize: String(event?.registration.minTeamSize ?? 2),
@@ -44,6 +44,11 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
   const [posterProgress, setPosterProgress] = useState(0);
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [posterDragging, setPosterDragging] = useState(false);
+  const [qrUploadError, setQrUploadError] = useState<string | null>(null);
+  const [qrUploading, setQrUploading] = useState(false);
+  const [qrProgress, setQrProgress] = useState(0);
+  const [qrFileError, setQrFileError] = useState<string | null>(null);
+  const qrInput = useRef<HTMLInputElement>(null);
   const posterInput = useRef<HTMLInputElement>(null);
   const localPosterPreview = useRef<string | null>(null);
   const editing = mode === "edit";
@@ -57,6 +62,8 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
     setPosterFile(null);
     setPosterUploadError(null);
     setPosterFailed(false);
+    setQrUploadError(null);
+    setQrFileError(null);
   }, [event]);
 
   useEffect(() => () => {
@@ -117,6 +124,17 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
     setPosterFailed(false);
     if (posterInput.current) posterInput.current.value = "";
   };
+  const uploadPaymentQr = async (file: File) => {
+    if (!ALLOWED_POSTER_TYPES.has(file.type)) { setQrFileError("Choose a JPG, PNG or WEBP image."); return; }
+    if (file.size > MAX_POSTER_SIZE) { setQrFileError("Payment QR images must be 5 MB or smaller."); return; }
+    setQrFileError(null); setQrUploadError(null); setQrUploading(true); setQrProgress(0);
+    try {
+      const result = await uploadEventPaymentQr(file, setQrProgress);
+      set("paymentQrUrl", result.secureUrl);
+    } catch (requestError) {
+      setQrUploadError(getApiErrorMessage(requestError, "The payment QR image could not be uploaded. The existing saved QR will be kept."));
+    } finally { setQrUploading(false); }
+  };
   const fieldError = () => {
     const keys = fields.map(field => field.fieldKey.trim().toLowerCase());
     if (keys.some(key => !/^[a-z][a-z0-9_]*$/.test(key))) return "Each field key must begin with a letter and contain only letters, numbers, and underscores.";
@@ -135,7 +153,7 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
     try {
       const common = {
         name: values.name.trim(), description: values.description.trim(), category: values.category as EventCategory,
-        poster: values.poster.trim() || null, venue: values.venue.trim(),
+        poster: values.poster.trim() || null, paymentQrUrl: values.paymentQrUrl.trim() || null, venue: values.venue.trim(),
         startDate: new Date(values.startDate).toISOString(), endDate: new Date(values.endDate).toISOString(),
       };
       if (editing && event) {
@@ -192,6 +210,17 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
             {posterUploading && <div className="poster-upload-progress" role="status"><span><i style={{ width: `${posterProgress}%` }} /></span><small>{posterProgress ? `${posterProgress}%` : "Preparing upload…"}</small></div>}
             {posterUploadError && <div className="poster-upload-error" role="alert"><span>{posterUploadError}{editing && values.poster ? " The currently saved poster will be kept unless you remove it." : ""}</span>{posterFile && !posterUploading && <Button type="button" variant="quiet" onClick={() => void uploadPoster(posterFile)} disabled={submitting}>Retry upload</Button>}{posterFile && !posterUploading && values.poster && <Button type="button" variant="quiet" onClick={discardPosterReplacement} disabled={submitting}>Discard replacement</Button>}</div>}
           </div>
+          <div className="form-field span-two event-poster-field">
+            <span>Event UPI payment QR <small>Required for UPI registrations</small></span>
+            {values.paymentQrUrl && <div className="poster-preview payment-qr-preview"><img src={values.paymentQrUrl} alt="Configured event UPI payment QR" /><div><strong>{qrUploading ? "Uploading replacement…" : "Saved event payment QR"}</strong><small>Participants in this event will see this image when they choose UPI.</small></div></div>}
+            <label className={`poster-upload-dropzone${qrUploading || submitting ? " is-disabled" : ""}`}>
+              <input ref={qrInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose event UPI QR image" disabled={qrUploading || submitting} onChange={e => { const file = e.currentTarget.files?.[0]; if (file) void uploadPaymentQr(file); e.currentTarget.value = ""; }} />
+              <Image size={18} /><strong>{values.paymentQrUrl ? "Choose a replacement QR image" : "Upload this event’s UPI QR image"}</strong><small>JPG, PNG or WEBP · up to 5 MB</small>
+            </label>
+            {qrUploading && <div className="poster-upload-progress" role="status"><span><i style={{ width: `${qrProgress}%` }} /></span><small>{qrProgress ? `${qrProgress}%` : "Preparing upload…"}</small></div>}
+            {(qrFileError || qrUploadError) && <div className="poster-upload-error" role="alert">{qrFileError || qrUploadError}</div>}
+            {!values.paymentQrUrl && <small>UPI registration will be unavailable until this event has a QR image. Cash registration remains available.</small>}
+          </div>
         </div>
       </Card>
 
@@ -222,7 +251,7 @@ export default function EventForm({ mode, event }: { mode: "create" | "edit"; ev
         <RegistrationFieldBuilder fields={fields} onChange={setFields} readOnly={editing} />
       </Card>
 
-      <div className="event-form-footer"><span><b>*</b> Required fields. New events are published when created.</span><div><Button type="button" variant="secondary" onClick={() => navigate(editing && event ? `/admin/events/${event._id}` : "/admin/events")} disabled={submitting || posterUploading}>Discard</Button><Button type="submit" variant="primary" icon={<Save size={15} />} disabled={submitting || posterUploading}>{posterUploading ? "Uploading poster…" : submitting ? "Saving…" : editing ? "Save changes" : "Create event"}</Button></div></div>
+      <div className="event-form-footer"><span><b>*</b> Required fields. New events are published when created.</span><div><Button type="button" variant="secondary" onClick={() => navigate(editing && event ? `/admin/events/${event._id}` : "/admin/events")} disabled={submitting || posterUploading || qrUploading}>Discard</Button><Button type="submit" variant="primary" icon={<Save size={15} />} disabled={submitting || posterUploading || qrUploading}>{posterUploading || qrUploading ? "Uploading image…" : submitting ? "Saving…" : editing ? "Save changes" : "Create event"}</Button></div></div>
     </form>
   </>;
 }

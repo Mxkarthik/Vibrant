@@ -95,6 +95,12 @@ const registrationSchema = new mongoose.Schema(
                 type: String,
                 default: null
             },
+            cashReceiverName: {
+                type: String,
+                trim: true,
+                maxlength: 120,
+                default: null
+            },
             verifiedBy: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",

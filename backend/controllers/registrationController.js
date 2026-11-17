@@ -8,6 +8,8 @@ const { getCertificateEligibility, issueCertificateRecord } = require("../utils/
 const { drawCertificate } = require("../utils/certificatePdf");
 const PDFDocument = require("pdfkit");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
+const deleteCloudinaryImage = require("../utils/deleteCloudinaryImage");
+const isValidImageFile = require("../utils/validateImageBuffer");
 // Validate and normalize event-specific answers
 const validateCustomResponses = (fields, responses) => {
     if (!Array.isArray(responses)) {
@@ -163,6 +165,8 @@ const validateCustomResponses = (fields, responses) => {
 
 const registerForEvent = async (req, res) => {
     const { id } = req.params;
+    let uploadedProof = null;
+    let registrationCommitted = false;
 
     if (!mongoose.isValidObjectId(id)) {
         return res.status(400).json({
@@ -178,11 +182,18 @@ const registerForEvent = async (req, res) => {
         });
     }
 
-    const {
-        participantDetails,
-        customResponses = [],
-        paymentMethod
-    } = req.body;
+    let participantDetails;
+    let customResponses = [];
+    let paymentMethod;
+    let cashReceiverName;
+    try {
+        participantDetails = typeof req.body.participantDetails === "string" ? JSON.parse(req.body.participantDetails) : req.body.participantDetails;
+        customResponses = typeof req.body.customResponses === "string" ? JSON.parse(req.body.customResponses) : (req.body.customResponses || []);
+        paymentMethod = req.body.paymentMethod;
+        cashReceiverName = req.body.cashReceiverName;
+    } catch {
+        return res.status(400).json({ success: false, message: "Registration details are invalid." });
+    }
 
     if (
         !participantDetails ||
@@ -272,16 +283,27 @@ const registerForEvent = async (req, res) => {
                 throw error;
             }
 
-            const normalizedResponses = validateCustomResponses(
-                event.registrationFields || [],
-                customResponses
-            );
+            let normalizedResponses;
+            try {
+                normalizedResponses = validateCustomResponses(
+                    event.registrationFields || [],
+                    customResponses
+                );
+            } catch (validationError) {
+                validationError.statusCode = 400;
+                throw validationError;
+            }
 
             const fee = event.registration.registrationFee || 0;
 
             let payment;
 
             if (fee === 0) {
+                if (req.file) {
+                    const error = new Error("Payment proof is not accepted for a free event.");
+                    error.statusCode = 400;
+                    throw error;
+                }
                 payment = {
                     method: "NONE",
                     status: "NOT_REQUIRED"
@@ -293,9 +315,41 @@ const registerForEvent = async (req, res) => {
                     throw error;
                 }
 
+                let paymentDetails = {};
+                if (paymentMethod === "UPI") {
+                    if (!event.paymentQrUrl) {
+                        const error = new Error("UPI payment is unavailable because the administrator has not configured an event payment QR.");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (!req.file || !isValidImageFile(req.file)) {
+                        const error = new Error("Upload a valid JPG, PNG or WEBP payment screenshot before submitting.");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (!uploadedProof) {
+                        try { uploadedProof = await uploadToCloudinary(req.file.buffer, "vibrant/payment-proofs"); }
+                        catch { const error = new Error("Payment proof could not be uploaded. No registration was created."); error.statusCode = 502; throw error; }
+                    }
+                    paymentDetails.proofUrl = uploadedProof.secureUrl;
+                } else {
+                    if (req.file) {
+                        const error = new Error("A payment screenshot is only accepted for UPI payments.");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (typeof cashReceiverName !== "string" || !cashReceiverName.trim() || cashReceiverName.trim().length > 120) {
+                        const error = new Error("Enter the name of the person who received the cash (maximum 120 characters).");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    paymentDetails.cashReceiverName = cashReceiverName.trim();
+                }
+
                 payment = {
                     method: paymentMethod,
-                    status: "PENDING"
+                    status: "PENDING",
+                    ...paymentDetails
                 };
             }
 
@@ -356,11 +410,21 @@ const registerForEvent = async (req, res) => {
 
             createdRegistration = registration;
         });
+        registrationCommitted = true;
 
         return res.status(201).json({
             success: true,
             message: "Registration successful",
-            registration: createdRegistration
+            registration: {
+                _id: createdRegistration._id,
+                status: createdRegistration.status,
+                payment: {
+                    method: createdRegistration.payment.method,
+                    status: createdRegistration.payment.status,
+                    proofUrl: createdRegistration.payment.proofUrl || null,
+                    cashReceiverName: createdRegistration.payment.cashReceiverName || null
+                }
+            }
         });
 
     } catch (error) {
@@ -382,28 +446,74 @@ const registerForEvent = async (req, res) => {
 
     } finally {
         await session.endSession();
+        if (!registrationCommitted && uploadedProof?.publicId) {
+            try { await deleteCloudinaryImage(uploadedProof.publicId); }
+            catch (cleanupError) { console.error("Unable to remove abandoned registration proof upload:", cleanupError.message); }
+        }
     }
 };
 
 
 // @desc    Get registrations of logged-in participant
 // @route   GET /api/registrations/my
-// @access  Authenticated users
+// @access  PARTICIPANT only; records are scoped to the verified session user
 
 const getMyRegistrations = async (req, res) => {
     try {
         const registrations = await Registration.find({
-            user: req.user._id,
-            status: "REGISTERED"
+            user: req.user._id
         })
-            .populate("event", "name category poster venue startDate endDate status")
+            .select("event team isTeamLeader status createdAt participantDetails.fullName payment.method payment.status attendance.isPresent attendance.checkedInAt certificate.certificateId certificate.issuedAt certificate.isIssued")
+            .populate("event", "name category poster venue startDate endDate status registration.registrationFee")
+            .populate("team", "teamName memberCount status payment.status")
             .sort({ createdAt: -1 })
             .lean();
 
         return res.status(200).json({
             success: true,
             count: registrations.length,
-            registrations
+            registrations: registrations.map(registration => ({
+                id: registration._id,
+                createdAt: registration.createdAt,
+                status: registration.status,
+                attendance: {
+                    isPresent: registration.attendance?.isPresent === true,
+                    checkedInAt: registration.attendance?.checkedInAt || null
+                },
+                participantName: registration.participantDetails?.fullName || null,
+                certificate: {
+                    isIssued: registration.certificate?.isIssued === true,
+                    certificateId: registration.certificate?.isIssued === true ? registration.certificate.certificateId || null : null,
+                    issuedAt: registration.certificate?.isIssued === true ? registration.certificate.issuedAt || null : null
+                },
+                isTeam: Boolean(registration.team),
+                isTeamLeader: Boolean(registration.isTeamLeader),
+                teamId: registration.isTeamLeader && registration.team ? registration.team._id : null,
+                teamStatus: registration.team?.status || null,
+                team: registration.team ? {
+                    name: registration.team.teamName,
+                    memberCount: registration.team.memberCount,
+                    paymentStatus: registration.team.payment?.status || "NOT_REQUIRED"
+                } : null,
+                payment: registration.team
+                    ? { method: "SHARED", status: registration.team.payment?.status || "NOT_REQUIRED" }
+                    : { method: registration.payment?.method || "NONE", status: registration.payment?.status || "NOT_REQUIRED" },
+                amount: registration.team
+                    ? null
+                    : typeof registration.event?.registration?.registrationFee === "number"
+                        ? registration.event.registration.registrationFee
+                        : null,
+                event: registration.event ? {
+                    id: registration.event._id,
+                    name: registration.event.name,
+                    category: registration.event.category,
+                    poster: registration.event.poster || null,
+                    venue: registration.event.venue,
+                    startDate: registration.event.startDate,
+                    endDate: registration.event.endDate,
+                    status: registration.event.status
+                } : null
+            }))
         });
 
     } catch (error) {
@@ -413,6 +523,65 @@ const getMyRegistrations = async (req, res) => {
             success: false,
             message: "Failed to fetch your registrations"
         });
+    }
+};
+
+const getMyRegistrationTicket = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!mongoose.isValidObjectId(id)) {
+            return res.status(400).json({ success: false, code: "INVALID_REGISTRATION", message: "Invalid registration reference." });
+        }
+
+        const registration = await Registration.findOne({
+            _id: id,
+            user: req.user._id,
+            team: null
+        })
+            .select("qrToken status participantDetails.fullName payment.status event")
+            .populate("event", "name category venue startDate endDate status")
+            .lean();
+
+        if (!registration || !registration.event) {
+            return res.status(404).json({ success: false, code: "TICKET_NOT_FOUND", message: "Ticket not found for this account." });
+        }
+        if (registration.status !== "REGISTERED") {
+            return res.status(409).json({ success: false, code: "REGISTRATION_CANCELLED", message: "This registration is cancelled and has no valid ticket." });
+        }
+        if (registration.event.status === "CANCELLED") {
+            return res.status(409).json({ success: false, code: "EVENT_CANCELLED", message: "This event was cancelled. Its ticket is not valid." });
+        }
+        if (!registration.qrToken || !/^[a-f0-9]{64}$/i.test(registration.qrToken)) {
+            return res.status(409).json({ success: false, code: "QR_UNAVAILABLE", message: "A valid ticket QR is not available for this registration." });
+        }
+        const paymentStatus = registration.payment?.status || "NOT_REQUIRED";
+        if (!["VERIFIED", "NOT_REQUIRED"].includes(paymentStatus)) {
+            return res.status(409).json({ success: false, code: "PAYMENT_NOT_ELIGIBLE", message: "A ticket is available after payment is verified." });
+        }
+
+        return res.status(200).json({
+            success: true,
+            ticket: {
+                registrationId: registration._id,
+                registrationType: "INDIVIDUAL",
+                attendeeName: registration.participantDetails?.fullName || "Participant",
+                qrToken: registration.qrToken,
+                registrationStatus: registration.status,
+                paymentStatus,
+                ticketStatus: registration.event.status === "COMPLETED" ? "HISTORICAL" : "VALID",
+                event: {
+                    name: registration.event.name,
+                    category: registration.event.category,
+                    venue: registration.event.venue,
+                    startDate: registration.event.startDate,
+                    endDate: registration.event.endDate,
+                    status: registration.event.status
+                }
+            }
+        });
+    } catch (error) {
+        console.error("Get participant ticket error:", error);
+        return res.status(500).json({ success: false, message: "Failed to load ticket." });
     }
 };
 
@@ -589,7 +758,7 @@ const getRegistrationById = async (req, res) => {
         const registration = await Registration.findById(id)
             .select("-qrToken")
             .populate("user", "name email")
-            .populate("event", "name category venue startDate endDate")
+            .populate("event", "name category venue startDate endDate status paymentQrUrl registration.registrationFee")
             .populate({ path: "team", select: "teamName memberCount leader payment.status", populate: { path: "leader", select: "name email" } });
 
         if (!registration) {
@@ -1346,6 +1515,7 @@ const uploadRegistrationPaymentProof = async (req, res) => {
 module.exports = {
     registerForEvent,
     getMyRegistrations,
+    getMyRegistrationTicket,
     getEventParticipants,
     getRegistrationById,
     updatePaymentStatus,

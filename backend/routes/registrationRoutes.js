@@ -3,9 +3,11 @@ const express = require("express");
 
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
+const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
 
 const {
     getMyRegistrations,
+    getMyRegistrationTicket,
     getRegistrationById,
     updatePaymentStatus,
     markAttendance,
@@ -14,14 +16,17 @@ const {
 
 const router = express.Router();
 
-const upload = require("../middleware/uploadMiddleware");
+const paymentProofUpload = require("../middleware/paymentProofUpload");
 
 const {
     downloadCertificate
 } = require("../controllers/registrationController");
 
 // Participant: view own registrations
-router.get("/my", protect, getMyRegistrations);
+router.get("/my", protect, authorizeParticipantPortal, getMyRegistrations);
+
+// A ticket token is returned only to the authenticated owner of an individual registration.
+router.get("/:id/ticket", protect, authorizeParticipantPortal, getMyRegistrationTicket);
 
 router.post(
     "/attendance",
@@ -47,11 +52,12 @@ router.get(
 router.post(
     "/:id/payment-proof",
     protect,
-    upload.single("screenshot"),
+    authorizeParticipantPortal,
+    paymentProofUpload,
     uploadRegistrationPaymentProof
 );
 
 // Participant, admin or assigned organiser: view registration
-router.get("/:id", protect, getRegistrationById);
+router.get("/:id", protect, authorizeParticipantPortal, getRegistrationById);
 
 module.exports = router;

@@ -2,7 +2,8 @@ const express = require("express");
 
 const protect = require("../middleware/authMiddleware");
 const authorizeRoles = require("../middleware/roleMiddleware");
-const upload = require("../middleware/uploadMiddleware");
+const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
+const paymentProofUpload = require("../middleware/paymentProofUpload");
 
 const {
     uploadTeamPaymentProof
@@ -11,14 +12,20 @@ const {
 const {
     updateTeamPaymentStatus
 } = require("../controllers/teamRegistrationController");
+const { getLeaderTeamById, getLeaderTeamTickets } = require("../controllers/teamRegistrationController");
 
 const router = express.Router();
+
+// Team leader: view their own team details
+router.get("/:id", protect, authorizeParticipantPortal, getLeaderTeamById);
+router.get("/:id/tickets", protect, authorizeParticipantPortal, getLeaderTeamTickets);
 
 // Team leader: upload shared team payment proof
 router.post(
     "/:id/payment-proof",
     protect,
-    upload.single("screenshot"),
+    authorizeParticipantPortal,
+    paymentProofUpload,
     uploadTeamPaymentProof
 );
 
