@@ -9,6 +9,51 @@ const authorizeParticipantPortal = require("../middleware/authorizeParticipantPo
 
 const adminFrontendUrl = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173").split(",")[0].trim().replace(/\/$/, "");
 const participantFrontendUrl = (process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174").split(",")[0].trim().replace(/\/$/, "");
+
+/**
+ * Resolves the Participant Frontend URL.
+ * In production (NODE_ENV === "production"):
+ *   - Uses PARTICIPANT_FRONTEND_URL if set and does not point to localhost.
+ *   - Defaults to the production Vercel deployment: https://vibrant-orcin.vercel.app.
+ * In development:
+ *   - Uses PARTICIPANT_FRONTEND_URL or defaults to http://localhost:5174.
+ */
+const getParticipantFrontendUrl = () => {
+    const raw = process.env.PARTICIPANT_FRONTEND_URL?.split(",")[0]?.trim();
+    const isProduction = process.env.NODE_ENV === "production";
+
+    if (raw && (!isProduction || !raw.includes("localhost"))) {
+        return raw.replace(/\/+$/, "");
+    }
+
+    if (isProduction) {
+        return "https://vibrant-orcin.vercel.app";
+    }
+
+    return (raw || "http://localhost:5174").replace(/\/+$/, "");
+};
+
+/**
+ * Resolves the Admin Frontend URL.
+ * In production:
+ *   - Uses ADMIN_FRONTEND_URL if set and does not point to localhost.
+ * In development:
+ *   - Uses ADMIN_FRONTEND_URL or defaults to http://localhost:5173.
+ */
+const getAdminFrontendUrl = () => {
+    const raw = process.env.ADMIN_FRONTEND_URL?.split(",")[0]?.trim();
+    const isProduction = process.env.NODE_ENV === "production";
+
+    if (raw && (!isProduction || !raw.includes("localhost"))) {
+        return raw.replace(/\/+$/, "");
+    }
+
+    if (isProduction && raw) {
+        return raw.replace(/\/+$/, "");
+    }
+
+    return (raw || "http://localhost:5173").replace(/\/+$/, "");
+};
 const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
 const authCookieOptions = {
     httpOnly: true,
@@ -48,7 +93,7 @@ router.get("/google/callback", (req, res, next) => {
     const portal = req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
         : "admin";
-    const frontendUrl = portal === "participant" ? participantFrontendUrl : adminFrontendUrl;
+    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : getAdminFrontendUrl();
     const failureUrl = portal === "participant"
         ? `${frontendUrl}/auth/callback?error=google_auth_failed`
         : `${frontendUrl}/login?error=google_auth_failed`;
@@ -66,7 +111,7 @@ router.get("/google/callback", (req, res, next) => {
     const portal = req.authPortal === "participant" || req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
         : "admin";
-    const frontendUrl = portal === "participant" ? participantFrontendUrl : adminFrontendUrl;
+    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : getAdminFrontendUrl();
     if (req.session) delete req.session.authPortal;
 
     try {
@@ -88,8 +133,8 @@ router.get("/google/callback", (req, res, next) => {
 // ==========================================
 
 router.get("/failed", (req, res) => {
-    const isParticipant = req.session?.authPortal === "participant";
-    const frontendUrl = isParticipant ? participantFrontendUrl : adminFrontendUrl;
+    const isParticipant = req.query.state === "participant" || req.session?.authPortal === "participant";
+    const frontendUrl = isParticipant ? getParticipantFrontendUrl() : getAdminFrontendUrl();
     if (req.session) delete req.session.authPortal;
     const failurePath = isParticipant ? "/auth/callback?error=google_auth_failed" : "/login?error=google_auth_failed";
     return res.redirect(302, `${frontendUrl}${failurePath}`);

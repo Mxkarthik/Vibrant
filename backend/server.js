@@ -12,11 +12,18 @@ const app = express();
 // Trust reverse proxy (Render load balancer) so req.secure and secure cookies work behind TLS termination
 app.set("trust proxy", 1);
 
-const configuredOrigins = [process.env.ADMIN_FRONTEND_URL || "http://localhost:5173", process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174"]
+const defaultOrigins = process.env.NODE_ENV === "production"
+    ? ["https://vibrant-orcin.vercel.app"]
+    : ["http://localhost:5173", "http://localhost:5174"];
+
+const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_FRONTEND_URL]
+    .filter(Boolean)
     .join(",")
     .split(",")
-    .map(origin => origin.trim().replace(/\/$/, ""))
+    .map(origin => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean);
+
+const configuredOrigins = Array.from(new Set([...defaultOrigins, ...customOrigins]));
 const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || "lax").toLowerCase();
 
 app.use(cors({
