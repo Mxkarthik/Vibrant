@@ -5,6 +5,7 @@ const Event = require("../models/Event");
 const Registration = require("../models/Registration");
 const Team = require("../models/Team");
 const { getCertificateEligibility } = require("../utils/certificateEligibility");
+const { attachEventParticipantCounts } = require("../utils/eventParticipantCounts");
 
 const validatePaymentQueueQuery = (query) => {
     const page = Number(query.page ?? 1);
@@ -401,10 +402,11 @@ const getAllAdminEvents = async (req, res) => {
                 .lean(),
             Event.countDocuments(filter)
         ]);
+        const eventsWithParticipantCounts = await attachEventParticipantCounts(events);
 
         return res.status(200).json({
             success: true,
-            events,
+            events: eventsWithParticipantCounts,
             pagination: {
                 totalEvents,
                 currentPage: pageNumber,
@@ -507,7 +509,7 @@ const buildRegistrationSummaryPipeline = () => [
                             $and: [
                                 "$isRegistrationActive",
                                 "$isTeamActive",
-                                { $in: ["$resolvedPaymentStatus", ["VERIFIED", "NOT_REQUIRED"]] }
+                                { $in: ["$resolvedPaymentStatus", ["PENDING", "VERIFIED", "NOT_REQUIRED"]] }
                             ]
                         },
                         1,

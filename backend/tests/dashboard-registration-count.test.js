@@ -5,12 +5,12 @@
  * Validates counting rules:
  *   - Individual VERIFIED: 1
  *   - Individual NOT_REQUIRED: 1
- *   - Individual PENDING: 0
+ *   - Individual PENDING: 1
  *   - Individual REJECTED: 0
  *   - Individual CANCELLED: 0
  *   - Team VERIFIED: Active member count
  *   - Team NOT_REQUIRED: Active member count
- *   - Team PENDING: 0
+ *   - Team PENDING: Active member count
  *   - Team REJECTED: 0
  *   - Team CANCELLED: 0
  *
@@ -172,16 +172,21 @@ function createTeamAndMembers(teamName, memberCount, paymentStatus = "VERIFIED",
 describe("Dashboard Total Registrations Count — Counting Rules", () => {
     const pipeline = buildRegistrationSummaryPipeline();
 
+    test("Empty database returns zero registrations", () => {
+        const res = runPipeline(pipeline, [], []);
+        assert.equal(res[0]?.totalRegistrations ?? 0, 0);
+    });
+
     test("1. One verified individual registration counts as 1", () => {
         const regs = [createIndividualReg("VERIFIED", "REGISTERED")];
         const res = runPipeline(pipeline, regs, []);
         assert.equal(res[0].totalRegistrations, 1);
     });
 
-    test("2. One pending individual registration counts as 0", () => {
+    test("2. One pending individual registration counts as 1", () => {
         const regs = [createIndividualReg("PENDING", "REGISTERED")];
         const res = runPipeline(pipeline, regs, []);
-        assert.equal(res[0].totalRegistrations, 0);
+        assert.equal(res[0].totalRegistrations, 1);
     });
 
     test("3. One rejected individual registration counts as 0", () => {
@@ -214,10 +219,27 @@ describe("Dashboard Total Registrations Count — Counting Rules", () => {
         assert.equal(res[0].totalRegistrations, 2);
     });
 
-    test("6. One pending team with two members counts as 0", () => {
+    test("6. One pending team with two members counts as 2", () => {
         const { team, members } = createTeamAndMembers("Beta", 2, "PENDING", "REGISTERED");
         const res = runPipeline(pipeline, members, [team]);
-        assert.equal(res[0].totalRegistrations, 0);
+        assert.equal(res[0].totalRegistrations, 2);
+    });
+
+    test("Pending team with a leader and guest members counts each registration once", () => {
+        const { team, members } = createTeamAndMembers("Guests", 4, "PENDING", "REGISTERED");
+        members[0].isTeamLeader = true;
+        members[1].user = null;
+        members[2].user = null;
+        members[3].user = null;
+
+        const res = runPipeline(pipeline, members, [team]);
+        assert.equal(res[0].totalRegistrations, 4);
+    });
+
+    test("One verified team with four members counts as 4", () => {
+        const { team, members } = createTeamAndMembers("FourMembers", 4, "VERIFIED", "REGISTERED");
+        const res = runPipeline(pipeline, members, [team]);
+        assert.equal(res[0].totalRegistrations, 4);
     });
 
     test("7. One rejected team counts as 0", () => {
@@ -241,13 +263,13 @@ describe("Dashboard Total Registrations Count — Counting Rules", () => {
 
     test("9. A mixture of individual and team registrations", () => {
         const indVerified = createIndividualReg("VERIFIED", "REGISTERED");       // +1
-        const indPending = createIndividualReg("PENDING", "REGISTERED");         // +0
+        const indPending = createIndividualReg("PENDING", "REGISTERED");         // +1
         const indRejected = createIndividualReg("REJECTED", "REGISTERED");       // +0
         const indNotRequired = createIndividualReg("NOT_REQUIRED", "REGISTERED");// +1
         const indCancelled = createIndividualReg("VERIFIED", "CANCELLED");       // +0
 
         const teamVer = createTeamAndMembers("T-Verified", 2, "VERIFIED");       // +2
-        const teamPend = createTeamAndMembers("T-Pending", 3, "PENDING");        // +0
+        const teamPend = createTeamAndMembers("T-Pending", 3, "PENDING");       // +3
         const teamRej = createTeamAndMembers("T-Rejected", 2, "REJECTED");       // +0
         const teamCanc = createTeamAndMembers("T-Cancelled", 2, "VERIFIED", "CANCELLED"); // +0
 
@@ -265,8 +287,8 @@ describe("Dashboard Total Registrations Count — Counting Rules", () => {
         const allTeams = [teamVer.team, teamPend.team, teamRej.team, teamCanc.team];
 
         const res = runPipeline(pipeline, allRegs, allTeams);
-        // Expected: 1 (indVerified) + 1 (indNotRequired) + 2 (teamVer members) = 4
-        assert.equal(res[0].totalRegistrations, 4);
+        // Expected: 3 individual attendees + 5 active team attendees = 8
+        assert.equal(res[0].totalRegistrations, 8);
     });
 
     test("10. No duplicate participant counting", () => {
@@ -276,17 +298,15 @@ describe("Dashboard Total Registrations Count — Counting Rules", () => {
         assert.equal(members.length, 4);
     });
 
-    test("11. Supplied example from database: MEDHA (2 VERIFIED) + Helina Arcade (2 PENDING) => exactly 2, not 4", () => {
+    test("11. Supplied example: MEDHA (2 VERIFIED) + Helina Arcade (2 PENDING) => 4 attendees", () => {
         const medha = createTeamAndMembers("MEDHA", 2, "VERIFIED", "REGISTERED");
         const helina = createTeamAndMembers("Helina Arcade", 2, "PENDING", "REGISTERED");
 
         const allRegs = [...medha.members, ...helina.members];
         const allTeams = [medha.team, helina.team];
 
-        // Before Fix 1, this returned 4 because it counted all 4 Registration documents.
-        // After Fix 1, it must return exactly 2.
         const res = runPipeline(pipeline, allRegs, allTeams);
-        assert.equal(res[0].totalRegistrations, 2);
+        assert.equal(res[0].totalRegistrations, 4);
     });
 });
 
@@ -297,6 +317,28 @@ describe("getDashboard Controller Endpoint Integration", () => {
         res.json = (body) => { res.body = body; return res; };
         return res;
     }
+
+    test("getDashboard returns zero registrations when the database is empty", async (context) => {
+        context.mock.method(Event, "aggregate", async () => []);
+        context.mock.method(Registration, "aggregate", async () => []);
+        context.mock.method(Team, "aggregate", async () => []);
+        context.mock.method(User, "countDocuments", async () => 0);
+        context.mock.method(Event, "find", () => ({
+            sort: () => ({
+                limit: () => ({
+                    select: () => ({
+                        lean: async () => []
+                    })
+                })
+            })
+        }));
+
+        const res = mockRes();
+        await getDashboard({ user: { _id: adminId, role: "ADMIN" } }, res);
+
+        assert.equal(res.statusCode, 200);
+        assert.equal(res.body.overview.totalRegistrations, 0);
+    });
 
     test("getDashboard returns overview.totalRegistrations computed by pipeline", async (context) => {
         const medha = createTeamAndMembers("MEDHA", 2, "VERIFIED", "REGISTERED");
@@ -346,6 +388,12 @@ describe("getDashboard Controller Endpoint Integration", () => {
 
         assert.equal(res.statusCode, 200);
         assert.equal(res.body.success, true);
-        assert.equal(res.body.overview.totalRegistrations, 2, "Supplied example returns 2, not 4");
+        assert.equal(res.body.overview.totalRegistrations, 4, "Verified and pending team attendees are included");
+        assert.equal(res.body.overview.totalEvents, 1);
+        assert.equal(res.body.overview.totalOrganisers, 2);
+        assert.equal(res.body.payments.pendingIndividual + res.body.payments.pendingTeams, 1);
+        assert.equal(res.body.attendance.totalRegistered, 4);
+        assert.equal(res.body.attendance.totalCheckedIn, 0);
+        assert.equal(res.body.attendance.attendancePercentage, 0);
     });
 });

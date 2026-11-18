@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const crypto = require("node:crypto");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
 const isValidImageFile = require("../utils/validateImageBuffer");
+const { attachEventParticipantCounts } = require("../utils/eventParticipantCounts");
 
 const uploadEventPoster = async (req, res) => {
     try {
@@ -373,9 +374,11 @@ const getEventById = async (req, res) => {
             });
         }
 
+        const [eventWithParticipantCount] = await attachEventParticipantCounts([event]);
+
         return res.status(200).json({
             success: true,
-            event
+            event: eventWithParticipantCount
         });
 
     } catch (error) {
