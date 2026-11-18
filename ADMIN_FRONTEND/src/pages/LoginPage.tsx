@@ -3,8 +3,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { ArrowUpRight, Check, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { LoadingScreen } from "../auth/RouteGuards";
-
-const apiBase = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000").replace(/\/$/, "");
+import { apiBaseUrl } from "../api/client";
 
 export default function LoginPage() {
   const { user, loading, authError } = useAuth();
@@ -18,7 +17,7 @@ export default function LoginPage() {
 
   const signIn = () => {
     setStarting(true);
-    window.location.assign(`${apiBase}/api/auth/google`);
+    window.location.assign(`${apiBaseUrl}/auth/google`);
   };
 
   return <main className="login-page">
