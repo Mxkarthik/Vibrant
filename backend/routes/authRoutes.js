@@ -6,9 +6,9 @@ const protect = require("../middleware/authMiddleware");
 const router = express.Router();
 const authorizeRoles = require("../middleware/roleMiddleware");
 const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
+const { resolveAdminFrontendUrl } = require("../utils/adminFrontendUrl");
 
-const adminFrontendUrl = (process.env.ADMIN_FRONTEND_URL || "http://localhost:5173").split(",")[0].trim().replace(/\/$/, "");
-const participantFrontendUrl = (process.env.PARTICIPANT_FRONTEND_URL || "http://localhost:5174").split(",")[0].trim().replace(/\/$/, "");
+const adminFrontendUrl = resolveAdminFrontendUrl();
 
 /**
  * Resolves the Participant Frontend URL.
@@ -33,27 +33,6 @@ const getParticipantFrontendUrl = () => {
     return (raw || "http://localhost:5174").replace(/\/+$/, "");
 };
 
-/**
- * Resolves the Admin Frontend URL.
- * In production:
- *   - Uses ADMIN_FRONTEND_URL if set and does not point to localhost.
- * In development:
- *   - Uses ADMIN_FRONTEND_URL or defaults to http://localhost:5173.
- */
-const getAdminFrontendUrl = () => {
-    const raw = process.env.ADMIN_FRONTEND_URL?.split(",")[0]?.trim();
-    const isProduction = process.env.NODE_ENV === "production";
-
-    if (raw && (!isProduction || !raw.includes("localhost"))) {
-        return raw.replace(/\/+$/, "");
-    }
-
-    if (isProduction && raw) {
-        return raw.replace(/\/+$/, "");
-    }
-
-    return (raw || "http://localhost:5173").replace(/\/+$/, "");
-};
 const isProduction = process.env.NODE_ENV === "production";
 const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax")).toLowerCase();
 const authCookieOptions = {
@@ -95,7 +74,7 @@ router.get("/google/callback", (req, res, next) => {
     const portal = req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
         : "admin";
-    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : getAdminFrontendUrl();
+    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : adminFrontendUrl;
     const failureUrl = portal === "participant"
         ? `${frontendUrl}/auth/callback?error=google_auth_failed`
         : `${frontendUrl}/login?error=google_auth_failed`;
@@ -113,7 +92,7 @@ router.get("/google/callback", (req, res, next) => {
     const portal = req.authPortal === "participant" || req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
         : "admin";
-    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : getAdminFrontendUrl();
+    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : adminFrontendUrl;
     if (req.session) delete req.session.authPortal;
 
     try {
@@ -139,7 +118,7 @@ router.get("/google/callback", (req, res, next) => {
 
 router.get("/failed", (req, res) => {
     const isParticipant = req.query.state === "participant" || req.session?.authPortal === "participant";
-    const frontendUrl = isParticipant ? getParticipantFrontendUrl() : getAdminFrontendUrl();
+    const frontendUrl = isParticipant ? getParticipantFrontendUrl() : adminFrontendUrl;
     if (req.session) delete req.session.authPortal;
     const failurePath = isParticipant ? "/auth/callback?error=google_auth_failed" : "/login?error=google_auth_failed";
     return res.redirect(302, `${frontendUrl}${failurePath}`);
