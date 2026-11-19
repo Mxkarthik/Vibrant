@@ -19,6 +19,117 @@ const toRupees = (paise) => {
 };
 
 /**
+ * Builds the amount-resolution $addFields stages.
+ *
+ * Resolution rules (applicable for all payment methods):
+ *
+ * For VERIFIED payments:
+ *   _resolvedReceivedAmount =
+ *     receivedAmount        if explicitly recorded (not null)
+ *     otherwise expectedAmount if explicitly recorded (not null)
+ *     otherwise _eventFee   (current event registration fee — fee-derived, labelled accordingly)
+ *
+ * For PENDING / REJECTED payments:
+ *   _resolvedExpectedAmount =
+ *     expectedAmount        if explicitly recorded (not null)
+ *     otherwise _eventFee   (current event registration fee)
+ *
+ * NOT_REQUIRED payments: no monetary amount applies.
+ *
+ * unknownAmountCount: payments where the amount cannot be resolved even via event fee.
+ *   This only occurs when the event record is missing or the event fee itself is unavailable.
+ *   A payment that resolves to 0 via a zero event fee is NOT counted as unknown.
+ *
+ * feeSource: "recorded" if receivedAmount/expectedAmount was used, "event_fee" if derived from current event fee.
+ */
+const buildAmountResolutionStages = () => [
+    {
+        $lookup: {
+            from: "events",
+            localField: "event",
+            foreignField: "_id",
+            as: "_eventDoc"
+        }
+    },
+    {
+        $addFields: {
+            _eventFeeRaw: {
+                $arrayElemAt: ["$_eventDoc.registration.registrationFee", 0]
+            },
+            _eventFound: {
+                $gt: [{ $size: "$_eventDoc" }, 0]
+            }
+        }
+    },
+    {
+        $addFields: {
+            // Event fee: use the recorded fee from the event document, defaulting to null if event not found.
+            // We use null (not 0) so we can distinguish "event not found" from "free event (fee=0)".
+            _eventFee: {
+                $cond: [
+                    "$_eventFound",
+                    { $ifNull: ["$_eventFeeRaw", 0] },
+                    null
+                ]
+            }
+        }
+    },
+    {
+        $addFields: {
+            // For VERIFIED: use receivedAmount → expectedAmount → eventFee.
+            // This applies to ALL payment methods, not just CASH.
+            // A payment with status VERIFIED and no recorded amounts will use the current event fee.
+            //
+            // IMPORTANT: Fields that are entirely absent from a document (not stored at all) resolve
+            // to a "missing" BSON value in MongoDB aggregation. { $ne: [missingField, null] } returns
+            // true (missing ≠ null), but referencing missingField as a value returns undefined/missing,
+            // which causes $addFields to silently drop the computed field entirely.
+            // We must wrap every field reference in $ifNull to coerce missing → null before comparing.
+            _resolvedReceivedAmount: {
+                $switch: {
+                    branches: [
+                        // Explicitly recorded received amount (not null, not missing)
+                        {
+                            case: { $ne: [{ $ifNull: ["$payment.receivedAmount", null] }, null] },
+                            then: { $ifNull: ["$payment.receivedAmount", null] }
+                        },
+                        // Explicitly recorded expected amount (treat as received for verified)
+                        {
+                            case: { $ne: [{ $ifNull: ["$payment.expectedAmount", null] }, null] },
+                            then: { $ifNull: ["$payment.expectedAmount", null] }
+                        },
+                        // Derive from current event fee (all methods, including UPI)
+                        {
+                            case: { $ne: ["$_eventFee", null] },
+                            then: "$_eventFee"
+                        }
+                    ],
+                    default: null
+                }
+            },
+            // For PENDING / REJECTED: use expectedAmount → eventFee.
+            _resolvedExpectedAmount: {
+                $switch: {
+                    branches: [
+                        // Explicitly recorded expected amount (not null, not missing)
+                        {
+                            case: { $ne: [{ $ifNull: ["$payment.expectedAmount", null] }, null] },
+                            then: { $ifNull: ["$payment.expectedAmount", null] }
+                        },
+                        // Derive from current event fee
+                        {
+                            case: { $ne: ["$_eventFee", null] },
+                            then: "$_eventFee"
+                        }
+                    ],
+                    default: null
+                }
+            }
+        }
+    }
+];
+
+/**
  * Financial analytics service
  * Provides MongoDB-aggregated financial summaries across individual registrations and teams.
  */
@@ -84,7 +195,8 @@ class FinancialAnalyticsService {
             teamSummary,
             individualCashRecords,
             teamCashRecords,
-            allEventsList
+            allEventsList,
+            participantCounts
         ] = await Promise.all([
             this._aggregateCollectionSummary(Registration, individualMatch),
             this._aggregateCollectionSummary(Team, teamMatch),
@@ -94,7 +206,8 @@ class FinancialAnalyticsService {
                 ? [targetEvent]
                 : Event.find(scopedEventIds ? { _id: { $in: scopedEventIds } } : {})
                     .select("name category startDate registration.registrationFee status")
-                    .lean()
+                    .lean(),
+            this._aggregateParticipantCounts(individualMatch, teamMatch)
         ]);
 
         // Merge individual and team totals using paise arithmetic
@@ -117,13 +230,21 @@ class FinancialAnalyticsService {
         const pendingExpectedAmount = toRupees(pendingExpectedPaise);
         const rejectedExpectedAmount = toRupees(rejectedExpectedPaise);
 
-        // Collection percentage: verified / (verified + pending) * 100
-        const actionablePaise = totalVerifiedPaise + pendingExpectedPaise;
+        // Collection rate: participant-registration count-based, not amount-based.
+        // Formula: verifiedParticipants / totalPaidParticipants * 100
+        // Denominator: participants with VERIFIED, PENDING, or REJECTED status.
+        // NOT_REQUIRED (free) participants are excluded from the paid collection rate.
+        const verifiedParticipants = participantCounts.verifiedParticipants;
+        const pendingParticipants = participantCounts.pendingParticipants;
+        const rejectedParticipants = participantCounts.rejectedParticipants;
+        const totalPaidParticipants = verifiedParticipants + pendingParticipants + rejectedParticipants;
+
         let collectionPercentage = null;
-        if (actionablePaise > 0) {
-            collectionPercentage = Number(((totalVerifiedPaise / actionablePaise) * 100).toFixed(1));
-        } else if (verifiedCount + pendingCount === 0) {
-            collectionPercentage = 0;
+        if (totalPaidParticipants > 0) {
+            collectionPercentage = Number(((verifiedParticipants / totalPaidParticipants) * 100).toFixed(1));
+        } else {
+            // No paid participants exist: rate is not applicable
+            collectionPercentage = null;
         }
 
         // Payment method breakdown
@@ -186,7 +307,12 @@ class FinancialAnalyticsService {
                 rejectedCount,
                 individualCount: individualSummary.totalCount,
                 teamCount: teamSummary.totalCount,
+                // Count-based collection rate (participant registrations)
                 collectionPercentage,
+                verifiedParticipants,
+                pendingParticipants,
+                rejectedParticipants,
+                totalPaidParticipants,
                 unknownAmountCount,
                 isComplete: unknownAmountCount === 0,
                 currency: "INR",
@@ -208,60 +334,14 @@ class FinancialAnalyticsService {
     }
 
     /**
-     * Aggregates collection amounts and counts from a model (Registration or Team)
+     * Aggregates collection amounts and counts from a model (Registration or Team).
+     * Uses the corrected amount resolution: all payment methods fall back to event fee.
      */
     async _aggregateCollectionSummary(model, matchQuery) {
+        const amountStages = buildAmountResolutionStages();
         const results = await model.aggregate([
             { $match: matchQuery },
-            {
-                $lookup: {
-                    from: "events",
-                    localField: "event",
-                    foreignField: "_id",
-                    as: "_eventDoc"
-                }
-            },
-            {
-                $addFields: {
-                    _eventFee: {
-                        $ifNull: [
-                            { $arrayElemAt: ["$_eventDoc.registration.registrationFee", 0] },
-                            0
-                        ]
-                    }
-                }
-            },
-            {
-                $addFields: {
-                    // For CASH payments, cash received is the price of the event they registered for if not explicitly recorded
-                    _resolvedReceivedAmount: {
-                        $cond: [
-                            { $ne: ["$payment.receivedAmount", null] },
-                            "$payment.receivedAmount",
-                            {
-                                $cond: [
-                                    { $eq: ["$payment.method", "CASH"] },
-                                    { $ifNull: ["$payment.expectedAmount", "$_eventFee"] },
-                                    null
-                                ]
-                            }
-                        ]
-                    },
-                    _resolvedExpectedAmount: {
-                        $cond: [
-                            { $ne: ["$payment.expectedAmount", null] },
-                            "$payment.expectedAmount",
-                            {
-                                $cond: [
-                                    { $eq: ["$payment.method", "CASH"] },
-                                    "$_eventFee",
-                                    null
-                                ]
-                            }
-                        ]
-                    }
-                }
-            },
+            ...amountStages,
             {
                 $group: {
                     _id: null,
@@ -325,7 +405,7 @@ class FinancialAnalyticsService {
                         }
                     },
 
-                    // Amounts: cash received is the price of the event they registered for
+                    // Amounts: resolved using the corrected resolution logic
                     verifiedAmount: {
                         $sum: {
                             $cond: [
@@ -414,8 +494,7 @@ class FinancialAnalyticsService {
                         }
                     },
 
-                    // Unknown amount tracking:
-                    // VERIFIED without resolved receivedAmount, or PENDING/REJECTED without resolved expectedAmount
+                    // Unknown amount: payment where even event-fee resolution fails (event not found / deleted)
                     unknownAmountCount: {
                         $sum: {
                             $cond: [
@@ -465,6 +544,101 @@ class FinancialAnalyticsService {
     }
 
     /**
+     * Aggregates participant-level counts for the count-based collection rate.
+     *
+     * Individual registrations: each Registration document is one participant.
+     * Team registrations: each Registration document with a non-null team is one participant.
+     *   The effective payment status for team members is derived from the Team document, not
+     *   from the individual Registration.payment placeholder.
+     *
+     * NOT_REQUIRED participants are excluded from the paid collection rate denominator.
+     */
+    async _aggregateParticipantCounts(individualMatch, teamMatch) {
+        // Individual participants: team === null, their own payment status
+        const [individualCounts, teamParticipantCounts] = await Promise.all([
+            Registration.aggregate([
+                { $match: { ...individualMatch } },
+                {
+                    $group: {
+                        _id: null,
+                        verifiedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "VERIFIED"] }, 1, 0] }
+                        },
+                        pendingParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "PENDING"] }, 1, 0] }
+                        },
+                        rejectedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "REJECTED"] }, 1, 0] }
+                        }
+                    }
+                }
+            ]),
+            // Team participants: use Team payment status for all team members.
+            // Match team registrations matching the event scope, then look up team payment status.
+            (async () => {
+                // Build team-member registration match
+                const memberMatch = { team: { $ne: null }, status: "REGISTERED" };
+                if (individualMatch.event) {
+                    memberMatch.event = individualMatch.event;
+                }
+
+                return Registration.aggregate([
+                    { $match: memberMatch },
+                    {
+                        $lookup: {
+                            from: "teams",
+                            localField: "team",
+                            foreignField: "_id",
+                            as: "_teamDoc"
+                        }
+                    },
+                    {
+                        $addFields: {
+                            _teamPaymentStatus: {
+                                $ifNull: [
+                                    { $arrayElemAt: ["$_teamDoc.payment.status", 0] },
+                                    "PENDING"
+                                ]
+                            },
+                            _teamStatus: {
+                                $ifNull: [
+                                    { $arrayElemAt: ["$_teamDoc.status", 0] },
+                                    "REGISTERED"
+                                ]
+                            }
+                        }
+                    },
+                    // Only count participants whose team is REGISTERED (not cancelled)
+                    { $match: { _teamStatus: "REGISTERED" } },
+                    {
+                        $group: {
+                            _id: null,
+                            verifiedParticipants: {
+                                $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "VERIFIED"] }, 1, 0] }
+                            },
+                            pendingParticipants: {
+                                $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "PENDING"] }, 1, 0] }
+                            },
+                            rejectedParticipants: {
+                                $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "REJECTED"] }, 1, 0] }
+                            }
+                        }
+                    }
+                ]);
+            })()
+        ]);
+
+        const indiv = individualCounts[0] || {};
+        const team = teamParticipantCounts[0] || {};
+
+        return {
+            verifiedParticipants: (Number(indiv.verifiedParticipants) || 0) + (Number(team.verifiedParticipants) || 0),
+            pendingParticipants: (Number(indiv.pendingParticipants) || 0) + (Number(team.pendingParticipants) || 0),
+            rejectedParticipants: (Number(indiv.rejectedParticipants) || 0) + (Number(team.rejectedParticipants) || 0)
+        };
+    }
+
+    /**
      * Fetches cash payment records with event info for receiver breakdown
      */
     async _fetchCashPayments(model, baseMatch) {
@@ -482,7 +656,8 @@ class FinancialAnalyticsService {
     }
 
     /**
-     * Groups cash records by cashReceiverName
+     * Groups cash records by cashReceiverName.
+     * Uses the corrected amount resolution: receivedAmount → expectedAmount → eventFee.
      */
     _groupCashReceivers(cashRecords) {
         const receiverMap = new Map();
@@ -508,14 +683,23 @@ class FinancialAnalyticsService {
 
             const receiver = receiverMap.get(groupKey);
             const status = record.payment?.status;
-            const eventFee = record.event?.registration?.registrationFee ?? 0;
-            // Cash received is the price of the event they registered for if not explicitly recorded
-            const receivedAmount = typeof record.payment?.receivedAmount === "number" && Number.isFinite(record.payment.receivedAmount)
-                ? record.payment.receivedAmount
-                : (status === "VERIFIED" ? (typeof record.payment?.expectedAmount === "number" ? record.payment.expectedAmount : eventFee) : null);
-            const expectedAmount = typeof record.payment?.expectedAmount === "number" && Number.isFinite(record.payment.expectedAmount)
-                ? record.payment.expectedAmount
-                : eventFee;
+            const eventFee = record.event?.registration?.registrationFee ?? null;
+
+            // Resolve amount using corrected logic: receivedAmount → expectedAmount → eventFee
+            const resolveAmount = (forVerified) => {
+                if (typeof record.payment?.receivedAmount === "number" && Number.isFinite(record.payment.receivedAmount)) {
+                    return record.payment.receivedAmount;
+                }
+                if (typeof record.payment?.expectedAmount === "number" && Number.isFinite(record.payment.expectedAmount)) {
+                    return record.payment.expectedAmount;
+                }
+                if (typeof eventFee === "number" && Number.isFinite(eventFee)) {
+                    return eventFee;
+                }
+                return null;
+            };
+
+            const resolvedAmount = resolveAmount(status === "VERIFIED");
 
             const eventId = record.event?._id?.toString() || "unknown";
             const eventName = record.event?.name || "Event unavailable";
@@ -533,8 +717,8 @@ class FinancialAnalyticsService {
             if (status === "VERIFIED") {
                 receiver.verifiedCount += 1;
                 eventEntry.verifiedCount += 1;
-                if (typeof receivedAmount === "number" && Number.isFinite(receivedAmount)) {
-                    const paise = toPaise(receivedAmount);
+                if (typeof resolvedAmount === "number" && Number.isFinite(resolvedAmount)) {
+                    const paise = toPaise(resolvedAmount);
                     receiver.verifiedPaise += paise;
                     eventEntry.verifiedPaise += paise;
                 } else {
@@ -542,8 +726,8 @@ class FinancialAnalyticsService {
                 }
             } else if (status === "PENDING") {
                 receiver.pendingCount += 1;
-                if (typeof expectedAmount === "number" && Number.isFinite(expectedAmount)) {
-                    receiver.pendingPaise += toPaise(expectedAmount);
+                if (typeof resolvedAmount === "number" && Number.isFinite(resolvedAmount)) {
+                    receiver.pendingPaise += toPaise(resolvedAmount);
                 } else {
                     receiver.unknownAmountCount += 1;
                 }
@@ -580,15 +764,18 @@ class FinancialAnalyticsService {
     }
 
     /**
-     * Builds event-wise financial summary
+     * Builds event-wise financial summary using the corrected amount resolution.
+     * Also includes participant counts per event for the breakdown table.
      */
     async _buildEventBreakdown(events, individualMatch, teamMatch, singleEventId) {
         if (!events || events.length === 0) return [];
 
         const targetEventIds = events.map(e => new mongoose.Types.ObjectId(e._id.toString()));
 
-        // Run per-event aggregation on Registration
-        const [regByEvent, teamByEvent] = await Promise.all([
+        const amountStages = buildAmountResolutionStages();
+
+        // Run per-event aggregation on Registration and Team
+        const [regByEvent, teamByEvent, participantsByEvent] = await Promise.all([
             Registration.aggregate([
                 {
                     $match: {
@@ -597,54 +784,7 @@ class FinancialAnalyticsService {
                         event: { $in: targetEventIds }
                     }
                 },
-                {
-                    $lookup: {
-                        from: "events",
-                        localField: "event",
-                        foreignField: "_id",
-                        as: "_eventDoc"
-                    }
-                },
-                {
-                    $addFields: {
-                        _eventFee: {
-                            $ifNull: [
-                                { $arrayElemAt: ["$_eventDoc.registration.registrationFee", 0] },
-                                0
-                            ]
-                        }
-                    }
-                },
-                {
-                    $addFields: {
-                        _resolvedReceivedAmount: {
-                            $cond: [
-                                { $ne: ["$payment.receivedAmount", null] },
-                                "$payment.receivedAmount",
-                                {
-                                    $cond: [
-                                        { $eq: ["$payment.method", "CASH"] },
-                                        { $ifNull: ["$payment.expectedAmount", "$_eventFee"] },
-                                        null
-                                    ]
-                                }
-                            ]
-                        },
-                        _resolvedExpectedAmount: {
-                            $cond: [
-                                { $ne: ["$payment.expectedAmount", null] },
-                                "$payment.expectedAmount",
-                                {
-                                    $cond: [
-                                        { $eq: ["$payment.method", "CASH"] },
-                                        "$_eventFee",
-                                        null
-                                    ]
-                                }
-                            ]
-                        }
-                    }
-                },
+                ...amountStages,
                 {
                     $group: {
                         _id: "$event",
@@ -706,11 +846,28 @@ class FinancialAnalyticsService {
                                 ]
                             }
                         },
+                        rejectedAmount: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: ["$payment.status", "REJECTED"] },
+                                            { $ne: ["$_resolvedExpectedAmount", null] }
+                                        ]
+                                    },
+                                    "$_resolvedExpectedAmount",
+                                    0
+                                ]
+                            }
+                        },
                         verifiedCount: {
                             $sum: { $cond: [{ $eq: ["$payment.status", "VERIFIED"] }, 1, 0] }
                         },
                         pendingCount: {
                             $sum: { $cond: [{ $eq: ["$payment.status", "PENDING"] }, 1, 0] }
+                        },
+                        rejectedCount: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "REJECTED"] }, 1, 0] }
                         },
                         unknownAmountCount: {
                             $sum: {
@@ -746,54 +903,7 @@ class FinancialAnalyticsService {
                         event: { $in: targetEventIds }
                     }
                 },
-                {
-                    $lookup: {
-                        from: "events",
-                        localField: "event",
-                        foreignField: "_id",
-                        as: "_eventDoc"
-                    }
-                },
-                {
-                    $addFields: {
-                        _eventFee: {
-                            $ifNull: [
-                                { $arrayElemAt: ["$_eventDoc.registration.registrationFee", 0] },
-                                0
-                            ]
-                        }
-                    }
-                },
-                {
-                    $addFields: {
-                        _resolvedReceivedAmount: {
-                            $cond: [
-                                { $ne: ["$payment.receivedAmount", null] },
-                                "$payment.receivedAmount",
-                                {
-                                    $cond: [
-                                        { $eq: ["$payment.method", "CASH"] },
-                                        { $ifNull: ["$payment.expectedAmount", "$_eventFee"] },
-                                        null
-                                    ]
-                                }
-                            ]
-                        },
-                        _resolvedExpectedAmount: {
-                            $cond: [
-                                { $ne: ["$payment.expectedAmount", null] },
-                                "$payment.expectedAmount",
-                                {
-                                    $cond: [
-                                        { $eq: ["$payment.method", "CASH"] },
-                                        "$_eventFee",
-                                        null
-                                    ]
-                                }
-                            ]
-                        }
-                    }
-                },
+                ...amountStages,
                 {
                     $group: {
                         _id: "$event",
@@ -855,11 +965,28 @@ class FinancialAnalyticsService {
                                 ]
                             }
                         },
+                        rejectedAmount: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: ["$payment.status", "REJECTED"] },
+                                            { $ne: ["$_resolvedExpectedAmount", null] }
+                                        ]
+                                    },
+                                    "$_resolvedExpectedAmount",
+                                    0
+                                ]
+                            }
+                        },
                         verifiedCount: {
                             $sum: { $cond: [{ $eq: ["$payment.status", "VERIFIED"] }, 1, 0] }
                         },
                         pendingCount: {
                             $sum: { $cond: [{ $eq: ["$payment.status", "PENDING"] }, 1, 0] }
+                        },
+                        rejectedCount: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "REJECTED"] }, 1, 0] }
                         },
                         unknownAmountCount: {
                             $sum: {
@@ -887,37 +1014,47 @@ class FinancialAnalyticsService {
                         }
                     }
                 }
-            ])
+            ]),
+            // Per-event participant counts (count-based)
+            this._aggregateEventParticipantCounts(targetEventIds)
         ]);
 
         const regMap = new Map(regByEvent.map(r => [r._id.toString(), r]));
         const teamMap = new Map(teamByEvent.map(t => [t._id.toString(), t]));
+        const participantMap = new Map(participantsByEvent.map(p => [p.eventId, p]));
 
         const list = events.map(evt => {
             const eId = evt._id.toString();
             const r = regMap.get(eId) || {};
             const t = teamMap.get(eId) || {};
+            const p = participantMap.get(eId) || {};
 
             const verifiedPaise = toPaise(r.verifiedAmount) + toPaise(t.verifiedAmount);
             const cashPaise = toPaise(r.cashAmount) + toPaise(t.cashAmount);
             const upiPaise = toPaise(r.upiAmount) + toPaise(t.upiAmount);
             const pendingPaise = toPaise(r.pendingAmount) + toPaise(t.pendingAmount);
+            const rejectedPaise = toPaise(r.rejectedAmount) + toPaise(t.rejectedAmount);
 
             const verifiedAmount = toRupees(verifiedPaise);
             const cashAmount = toRupees(cashPaise);
             const upiAmount = toRupees(upiPaise);
             const pendingAmount = toRupees(pendingPaise);
+            const rejectedAmount = toRupees(rejectedPaise);
 
             const verifiedCount = (Number(r.verifiedCount) || 0) + (Number(t.verifiedCount) || 0);
             const pendingCount = (Number(r.pendingCount) || 0) + (Number(t.pendingCount) || 0);
+            const rejectedCount = (Number(r.rejectedCount) || 0) + (Number(t.rejectedCount) || 0);
             const unknownAmountCount = (Number(r.unknownAmountCount) || 0) + (Number(t.unknownAmountCount) || 0);
 
-            const actionablePaise = verifiedPaise + pendingPaise;
+            // Participant counts for this event (count-based collection rate)
+            const verifiedParticipants = Number(p.verifiedParticipants) || 0;
+            const pendingParticipants = Number(p.pendingParticipants) || 0;
+            const rejectedParticipants = Number(p.rejectedParticipants) || 0;
+            const totalPaidParticipants = verifiedParticipants + pendingParticipants + rejectedParticipants;
+
             let collectionPercentage = null;
-            if (actionablePaise > 0) {
-                collectionPercentage = Number(((verifiedPaise / actionablePaise) * 100).toFixed(1));
-            } else if (verifiedCount + pendingCount === 0) {
-                collectionPercentage = 0;
+            if (totalPaidParticipants > 0) {
+                collectionPercentage = Number(((verifiedParticipants / totalPaidParticipants) * 100).toFixed(1));
             }
 
             return {
@@ -928,9 +1065,15 @@ class FinancialAnalyticsService {
                 cashAmount,
                 upiAmount,
                 pendingAmount,
+                rejectedAmount,
                 verifiedCount,
                 pendingCount,
+                rejectedCount,
                 unknownAmountCount,
+                verifiedParticipants,
+                pendingParticipants,
+                rejectedParticipants,
+                totalPaidParticipants,
                 collectionPercentage
             };
         });
@@ -943,6 +1086,102 @@ class FinancialAnalyticsService {
         });
 
         return list;
+    }
+
+    /**
+     * Aggregates participant-level counts per event for the event breakdown table.
+     */
+    async _aggregateEventParticipantCounts(targetEventIds) {
+        const [individualByEvent, teamMembersByEvent] = await Promise.all([
+            // Individual participants per event
+            Registration.aggregate([
+                {
+                    $match: {
+                        team: null,
+                        status: "REGISTERED",
+                        event: { $in: targetEventIds }
+                    }
+                },
+                {
+                    $group: {
+                        _id: "$event",
+                        verifiedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "VERIFIED"] }, 1, 0] }
+                        },
+                        pendingParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "PENDING"] }, 1, 0] }
+                        },
+                        rejectedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$payment.status", "REJECTED"] }, 1, 0] }
+                        }
+                    }
+                }
+            ]),
+            // Team member participants per event (using team payment status)
+            Registration.aggregate([
+                {
+                    $match: {
+                        team: { $ne: null },
+                        status: "REGISTERED",
+                        event: { $in: targetEventIds }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "teams",
+                        localField: "team",
+                        foreignField: "_id",
+                        as: "_teamDoc"
+                    }
+                },
+                {
+                    $addFields: {
+                        _teamPaymentStatus: {
+                            $ifNull: [
+                                { $arrayElemAt: ["$_teamDoc.payment.status", 0] },
+                                "PENDING"
+                            ]
+                        },
+                        _teamStatus: {
+                            $ifNull: [
+                                { $arrayElemAt: ["$_teamDoc.status", 0] },
+                                "REGISTERED"
+                            ]
+                        }
+                    }
+                },
+                { $match: { _teamStatus: "REGISTERED" } },
+                {
+                    $group: {
+                        _id: "$event",
+                        verifiedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "VERIFIED"] }, 1, 0] }
+                        },
+                        pendingParticipants: {
+                            $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "PENDING"] }, 1, 0] }
+                        },
+                        rejectedParticipants: {
+                            $sum: { $cond: [{ $eq: ["$_teamPaymentStatus", "REJECTED"] }, 1, 0] }
+                        }
+                    }
+                }
+            ])
+        ]);
+
+        const indivMap = new Map(individualByEvent.map(r => [r._id.toString(), r]));
+        const teamMap = new Map(teamMembersByEvent.map(r => [r._id.toString(), r]));
+
+        const allEventIds = new Set([...indivMap.keys(), ...teamMap.keys()]);
+        return Array.from(allEventIds).map(eId => {
+            const i = indivMap.get(eId) || {};
+            const t = teamMap.get(eId) || {};
+            return {
+                eventId: eId,
+                verifiedParticipants: (Number(i.verifiedParticipants) || 0) + (Number(t.verifiedParticipants) || 0),
+                pendingParticipants: (Number(i.pendingParticipants) || 0) + (Number(t.pendingParticipants) || 0),
+                rejectedParticipants: (Number(i.rejectedParticipants) || 0) + (Number(t.rejectedParticipants) || 0)
+            };
+        });
     }
 }
 

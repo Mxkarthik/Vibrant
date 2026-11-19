@@ -86,11 +86,47 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
             })
         }));
 
+        /**
+         * Shared helper: resolve applicable amount using the corrected production logic.
+         * - receivedAmount (if recorded) takes precedence
+         * - then expectedAmount (if recorded)
+         * - then eventFee (from event document, may be null if event not found)
+         * unknownAmount: true only when eventFee itself is null (event not found)
+         */
+        const resolveAmounts = (payment, eventFee) => {
+            const p = payment || {};
+            // Resolved received amount: for VERIFIED payments
+            let resolvedReceived;
+            if (p.receivedAmount != null) {
+                resolvedReceived = p.receivedAmount;
+            } else if (p.expectedAmount != null) {
+                resolvedReceived = p.expectedAmount;
+            } else if (eventFee != null) {
+                resolvedReceived = eventFee;
+            } else {
+                resolvedReceived = null; // event not found → truly unknown
+            }
+            // Resolved expected amount: for PENDING / REJECTED payments
+            let resolvedExpected;
+            if (p.expectedAmount != null) {
+                resolvedExpected = p.expectedAmount;
+            } else if (eventFee != null) {
+                resolvedExpected = eventFee;
+            } else {
+                resolvedExpected = null; // event not found → truly unknown
+            }
+            return { resolvedReceived, resolvedExpected };
+        };
+
         // Mock Registration.aggregate
         context.mock.method(Registration, "aggregate", async (pipeline) => {
             const match = pipeline[0]?.$match || {};
             let docs = mockRegistrations.filter(r => {
                 if (match.team === null && r.team !== null) return false;
+                if (match.team && match.team.$ne !== undefined) {
+                    // team: { $ne: null } means team is not null
+                    if (r.team === null) return false;
+                }
                 if (match.status && r.status !== match.status) return false;
                 if (match.event) {
                     if (match.event.$in) {
@@ -126,43 +162,38 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
                     for (const r of docs) {
                         const p = r.payment || {};
                         const ev = mockEvents.find(e => e._id.toString() === r.event.toString());
-                        const eventFee = ev?.registration?.registrationFee ?? 0;
-                        const isCash = p.method === "CASH";
-                        const receivedAmount = p.receivedAmount != null
-                            ? p.receivedAmount
-                            : (isCash && p.status === "VERIFIED" ? (p.expectedAmount != null ? p.expectedAmount : eventFee) : null);
-                        const expectedAmount = p.expectedAmount != null
-                            ? p.expectedAmount
-                            : (isCash ? eventFee : null);
+                        // eventFee is null when event not found (not 0), to distinguish free event from missing event
+                        const eventFee = ev ? (ev.registration?.registrationFee ?? 0) : null;
+                        const { resolvedReceived, resolvedExpected } = resolveAmounts(p, eventFee);
 
                         if (p.status === "VERIFIED") {
                             verifiedCount++;
-                            if (receivedAmount != null) {
-                                verifiedAmount += receivedAmount;
+                            if (resolvedReceived != null) {
+                                verifiedAmount += resolvedReceived;
                                 if (p.method === "CASH") {
                                     cashVerifiedCount++;
-                                    cashVerifiedAmount += receivedAmount;
+                                    cashVerifiedAmount += resolvedReceived;
                                 } else if (p.method === "UPI") {
                                     upiVerifiedCount++;
-                                    upiVerifiedAmount += receivedAmount;
+                                    upiVerifiedAmount += resolvedReceived;
                                 } else if (!["CASH", "UPI", "NONE"].includes(p.method)) {
                                     otherVerifiedCount++;
-                                    otherVerifiedAmount += receivedAmount;
+                                    otherVerifiedAmount += resolvedReceived;
                                 }
                             } else {
                                 unknownAmountCount++;
                             }
                         } else if (p.status === "PENDING") {
                             pendingCount++;
-                            if (expectedAmount != null) {
-                                pendingExpectedAmount += expectedAmount;
+                            if (resolvedExpected != null) {
+                                pendingExpectedAmount += resolvedExpected;
                             } else {
                                 unknownAmountCount++;
                             }
                         } else if (p.status === "REJECTED") {
                             rejectedCount++;
-                            if (expectedAmount != null) {
-                                rejectedExpectedAmount += expectedAmount;
+                            if (resolvedExpected != null) {
+                                rejectedExpectedAmount += resolvedExpected;
                             } else {
                                 unknownAmountCount++;
                             }
@@ -200,35 +231,35 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
                                 cashAmount: 0,
                                 upiAmount: 0,
                                 pendingAmount: 0,
+                                rejectedAmount: 0,
                                 verifiedCount: 0,
                                 pendingCount: 0,
+                                rejectedCount: 0,
                                 unknownAmountCount: 0
                             });
                         }
                         const entry = map.get(eId);
                         const p = r.payment || {};
                         const ev = mockEvents.find(e => e._id.toString() === r.event.toString());
-                        const eventFee = ev?.registration?.registrationFee ?? 0;
-                        const isCash = p.method === "CASH";
-                        const receivedAmount = p.receivedAmount != null
-                            ? p.receivedAmount
-                            : (isCash && p.status === "VERIFIED" ? (p.expectedAmount != null ? p.expectedAmount : eventFee) : null);
-                        const expectedAmount = p.expectedAmount != null
-                            ? p.expectedAmount
-                            : (isCash ? eventFee : null);
+                        const eventFee = ev ? (ev.registration?.registrationFee ?? 0) : null;
+                        const { resolvedReceived, resolvedExpected } = resolveAmounts(p, eventFee);
 
                         if (p.status === "VERIFIED") {
                             entry.verifiedCount++;
-                            if (receivedAmount != null) {
-                                entry.verifiedAmount += receivedAmount;
-                                if (p.method === "CASH") entry.cashAmount += receivedAmount;
-                                if (p.method === "UPI") entry.upiAmount += receivedAmount;
+                            if (resolvedReceived != null) {
+                                entry.verifiedAmount += resolvedReceived;
+                                if (p.method === "CASH") entry.cashAmount += resolvedReceived;
+                                if (p.method === "UPI") entry.upiAmount += resolvedReceived;
                             } else {
                                 entry.unknownAmountCount++;
                             }
                         } else if (p.status === "PENDING") {
                             entry.pendingCount++;
-                            if (expectedAmount != null) entry.pendingAmount += expectedAmount;
+                            if (resolvedExpected != null) entry.pendingAmount += resolvedExpected;
+                            else entry.unknownAmountCount++;
+                        } else if (p.status === "REJECTED") {
+                            entry.rejectedCount++;
+                            if (resolvedExpected != null) entry.rejectedAmount += resolvedExpected;
                             else entry.unknownAmountCount++;
                         }
                     }
@@ -276,43 +307,37 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
                     for (const t of docs) {
                         const p = t.payment || {};
                         const ev = mockEvents.find(e => e._id.toString() === t.event.toString());
-                        const eventFee = ev?.registration?.registrationFee ?? 0;
-                        const isCash = p.method === "CASH";
-                        const receivedAmount = p.receivedAmount != null
-                            ? p.receivedAmount
-                            : (isCash && p.status === "VERIFIED" ? (p.expectedAmount != null ? p.expectedAmount : eventFee) : null);
-                        const expectedAmount = p.expectedAmount != null
-                            ? p.expectedAmount
-                            : (isCash ? eventFee : null);
+                        const eventFee = ev ? (ev.registration?.registrationFee ?? 0) : null;
+                        const { resolvedReceived, resolvedExpected } = resolveAmounts(p, eventFee);
 
                         if (p.status === "VERIFIED") {
                             verifiedCount++;
-                            if (receivedAmount != null) {
-                                verifiedAmount += receivedAmount;
+                            if (resolvedReceived != null) {
+                                verifiedAmount += resolvedReceived;
                                 if (p.method === "CASH") {
                                     cashVerifiedCount++;
-                                    cashVerifiedAmount += receivedAmount;
+                                    cashVerifiedAmount += resolvedReceived;
                                 } else if (p.method === "UPI") {
                                     upiVerifiedCount++;
-                                    upiVerifiedAmount += receivedAmount;
+                                    upiVerifiedAmount += resolvedReceived;
                                 } else if (!["CASH", "UPI", "NONE"].includes(p.method)) {
                                     otherVerifiedCount++;
-                                    otherVerifiedAmount += receivedAmount;
+                                    otherVerifiedAmount += resolvedReceived;
                                 }
                             } else {
                                 unknownAmountCount++;
                             }
                         } else if (p.status === "PENDING") {
                             pendingCount++;
-                            if (expectedAmount != null) {
-                                pendingExpectedAmount += expectedAmount;
+                            if (resolvedExpected != null) {
+                                pendingExpectedAmount += resolvedExpected;
                             } else {
                                 unknownAmountCount++;
                             }
                         } else if (p.status === "REJECTED") {
                             rejectedCount++;
-                            if (expectedAmount != null) {
-                                rejectedExpectedAmount += expectedAmount;
+                            if (resolvedExpected != null) {
+                                rejectedExpectedAmount += resolvedExpected;
                             } else {
                                 unknownAmountCount++;
                             }
@@ -349,35 +374,35 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
                                 cashAmount: 0,
                                 upiAmount: 0,
                                 pendingAmount: 0,
+                                rejectedAmount: 0,
                                 verifiedCount: 0,
                                 pendingCount: 0,
+                                rejectedCount: 0,
                                 unknownAmountCount: 0
                             });
                         }
                         const entry = map.get(eId);
                         const p = t.payment || {};
                         const ev = mockEvents.find(e => e._id.toString() === t.event.toString());
-                        const eventFee = ev?.registration?.registrationFee ?? 0;
-                        const isCash = p.method === "CASH";
-                        const receivedAmount = p.receivedAmount != null
-                            ? p.receivedAmount
-                            : (isCash && p.status === "VERIFIED" ? (p.expectedAmount != null ? p.expectedAmount : eventFee) : null);
-                        const expectedAmount = p.expectedAmount != null
-                            ? p.expectedAmount
-                            : (isCash ? eventFee : null);
+                        const eventFee = ev ? (ev.registration?.registrationFee ?? 0) : null;
+                        const { resolvedReceived, resolvedExpected } = resolveAmounts(p, eventFee);
 
                         if (p.status === "VERIFIED") {
                             entry.verifiedCount++;
-                            if (receivedAmount != null) {
-                                entry.verifiedAmount += receivedAmount;
-                                if (p.method === "CASH") entry.cashAmount += receivedAmount;
-                                if (p.method === "UPI") entry.upiAmount += receivedAmount;
+                            if (resolvedReceived != null) {
+                                entry.verifiedAmount += resolvedReceived;
+                                if (p.method === "CASH") entry.cashAmount += resolvedReceived;
+                                if (p.method === "UPI") entry.upiAmount += resolvedReceived;
                             } else {
                                 entry.unknownAmountCount++;
                             }
                         } else if (p.status === "PENDING") {
                             entry.pendingCount++;
-                            if (expectedAmount != null) entry.pendingAmount += expectedAmount;
+                            if (resolvedExpected != null) entry.pendingAmount += resolvedExpected;
+                            else entry.unknownAmountCount++;
+                        } else if (p.status === "REJECTED") {
+                            entry.rejectedCount++;
+                            if (resolvedExpected != null) entry.rejectedAmount += resolvedExpected;
                             else entry.unknownAmountCount++;
                         }
                     }
@@ -672,7 +697,10 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
         assert.equal(unrecorded.verifiedAmount, 200);
     });
 
-    test("10. Missing historical amounts remain unknown", async () => {
+    test("10. UPI payment with null amounts resolves to event registration fee (not unknown)", async () => {
+        // With the corrected resolution logic, all payment methods (not just CASH)
+        // fall back to the event registration fee when both receivedAmount and expectedAmount are null.
+        // unknownAmountCount is only incremented when the event record itself is missing.
         mockRegistrations.push({
             _id: new mongoose.Types.ObjectId(),
             event: event1Id,
@@ -681,20 +709,23 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
             payment: {
                 method: "UPI",
                 status: "VERIFIED",
-                expectedAmount: null, // legacy
-                receivedAmount: null, // legacy
+                expectedAmount: null, // not explicitly recorded
+                receivedAmount: null, // not explicitly recorded
                 currency: "INR"
             }
         });
 
         const res = await financialAnalyticsService.getFinancialAnalytics();
-        assert.equal(res.summary.totalVerifiedAmount, 0);
+        // Amount resolves to event1 registrationFee = 200
+        assert.equal(res.summary.totalVerifiedAmount, 200);
+        assert.equal(res.summary.upiVerifiedAmount, 200);
         assert.equal(res.summary.verifiedCount, 1);
-        assert.equal(res.summary.unknownAmountCount, 1);
-        assert.equal(res.summary.isComplete, false);
+        // Not unknown: amount resolved via event fee
+        assert.equal(res.summary.unknownAmountCount, 0);
+        assert.equal(res.summary.isComplete, true);
     });
 
-    test("10b. Cash received for cash payments resolves to event price even if receivedAmount was null", async () => {
+    test("10b. Cash payment with null amounts resolves to event registration fee", async () => {
         mockRegistrations.push({
             _id: new mongoose.Types.ObjectId(),
             event: event1Id,
@@ -714,9 +745,38 @@ describe("Financial Analytics Service & Aggregation Rules", () => {
         assert.equal(res.summary.totalVerifiedAmount, 200);
         assert.equal(res.summary.cashVerifiedAmount, 200);
         assert.equal(res.summary.verifiedCount, 1);
+        assert.equal(res.summary.unknownAmountCount, 0);
         assert.equal(res.cashReceivers.length, 1);
         assert.equal(res.cashReceivers[0].verifiedAmount, 200);
     });
+
+    test("10c. Payment with missing event reference is flagged as truly unknown amount", async () => {
+        // This simulates a payment whose event was deleted — _eventFee resolves to null.
+        // The mock must simulate a missing event by using an ID not in mockEvents.
+        const orphanEventId = new mongoose.Types.ObjectId();
+        mockRegistrations.push({
+            _id: new mongoose.Types.ObjectId(),
+            event: orphanEventId, // not in mockEvents
+            team: null,
+            status: "REGISTERED",
+            payment: {
+                method: "UPI",
+                status: "VERIFIED",
+                expectedAmount: null,
+                receivedAmount: null,
+                currency: "INR"
+            }
+        });
+
+        const res = await financialAnalyticsService.getFinancialAnalytics();
+        // Event not found: _eventFee is null, _resolvedReceivedAmount is null → unknown
+        assert.equal(res.summary.totalVerifiedAmount, 0);
+        assert.equal(res.summary.verifiedCount, 1);
+        assert.equal(res.summary.unknownAmountCount, 1);
+        assert.equal(res.summary.isComplete, false);
+    });
+
+
 
     test("11. Event fee changes do not alter recorded payment amounts", async () => {
         mockRegistrations.push({

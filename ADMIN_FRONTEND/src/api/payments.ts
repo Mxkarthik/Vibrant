@@ -115,7 +115,16 @@ export interface FinancialSummaryData {
   rejectedCount: number;
   individualCount: number;
   teamCount: number;
+  /** Count-based collection rate: verifiedParticipants / totalPaidParticipants × 100 */
   collectionPercentage: number | null;
+  /** Number of paid participants whose payment is VERIFIED */
+  verifiedParticipants: number;
+  /** Number of paid participants whose payment is PENDING */
+  pendingParticipants: number;
+  /** Number of paid participants whose payment is REJECTED */
+  rejectedParticipants: number;
+  /** Total paid participants = verified + pending + rejected (excludes NOT_REQUIRED) */
+  totalPaidParticipants: number;
   unknownAmountCount: number;
   isComplete: boolean;
   currency: string;
@@ -153,9 +162,15 @@ export interface EventFinancialBreakdown {
   cashAmount: number;
   upiAmount: number;
   pendingAmount: number;
+  rejectedAmount: number;
   verifiedCount: number;
   pendingCount: number;
+  rejectedCount: number;
   unknownAmountCount: number;
+  verifiedParticipants: number;
+  pendingParticipants: number;
+  rejectedParticipants: number;
+  totalPaidParticipants: number;
   collectionPercentage: number | null;
 }
 

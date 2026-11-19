@@ -194,6 +194,38 @@ export default function PaymentsPage() {
     await Promise.all([loadPayments(), loadAnalytics(selectedEventId), loadEventsList()]);
   };
 
+  // Background polling: refresh analytics every 15 seconds while page is visible.
+  // Pauses when page is hidden (user switches tabs) to avoid unnecessary requests.
+  useEffect(() => {
+    const POLL_INTERVAL_MS = 15_000;
+    let timerId: ReturnType<typeof window.setTimeout> | null = null;
+
+    const schedulePoll = () => {
+      timerId = window.setTimeout(async () => {
+        if (document.visibilityState === "visible") {
+          await Promise.all([loadAnalytics(selectedEventId), loadPayments()]);
+        }
+        schedulePoll();
+      }, POLL_INTERVAL_MS);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Resume polling immediately on return
+        void loadAnalytics(selectedEventId);
+      }
+    };
+
+    schedulePoll();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      if (timerId !== null) window.clearTimeout(timerId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEventId]);
+
   const handleEventChange = (nextEventId: string) => {
     setSelectedEventId(nextEventId);
     setParams(current => ({ ...current, page: 1 }));
@@ -389,12 +421,12 @@ export default function PaymentsPage() {
                     : "—"
                   : undefined
               }
-              note="Verified vs. actionable amount"
+              note="Verified participant registrations"
               count={
                 analytics
-                  ? `${numberFormat.format(
-                      analytics.summary.verifiedCount + analytics.summary.pendingCount
-                    )} total actionable`
+                  ? analytics.summary.totalPaidParticipants > 0
+                    ? `${numberFormat.format(analytics.summary.verifiedParticipants)} of ${numberFormat.format(analytics.summary.totalPaidParticipants)} registrations`
+                    : "No paid registrations"
                   : undefined
               }
               icon={<Activity size={18} />}
@@ -407,11 +439,12 @@ export default function PaymentsPage() {
             <div style={{ marginBottom: "16px" }}>
               <span className="payment-incomplete-badge">
                 <AlertTriangle size={13} />
-                Notice: {analytics.summary.unknownAmountCount} historical payment record
-                {analytics.summary.unknownAmountCount === 1 ? "" : "s"} have unrecorded monetary amounts. Partial verified totals are reflected.
+                Notice: {analytics.summary.unknownAmountCount} payment record
+                {analytics.summary.unknownAmountCount === 1 ? "" : "s"} reference a deleted or unavailable event and cannot be resolved to a fee amount. These are excluded from monetary totals.
               </span>
             </div>
           )}
+
         </>
       )}
 
