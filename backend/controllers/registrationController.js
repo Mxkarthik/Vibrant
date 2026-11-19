@@ -306,7 +306,10 @@ const registerForEvent = async (req, res) => {
                 }
                 payment = {
                     method: "NONE",
-                    status: "NOT_REQUIRED"
+                    status: "NOT_REQUIRED",
+                    expectedAmount: 0,
+                    receivedAmount: 0,
+                    currency: "INR"
                 };
             } else {
                 if (!["UPI", "CASH"].includes(paymentMethod)) {
@@ -349,6 +352,9 @@ const registerForEvent = async (req, res) => {
                 payment = {
                     method: paymentMethod,
                     status: "PENDING",
+                    expectedAmount: fee,
+                    receivedAmount: null,
+                    currency: "INR",
                     ...paymentDetails
                 };
             }
@@ -943,9 +949,16 @@ const updatePaymentStatus = async (req, res) => {
             if (requestedStatus === "VERIFIED") {
                 registration.payment.verifiedBy = req.user._id;
                 registration.payment.verifiedAt = changedAt;
+
+                if (typeof req.body?.receivedAmount === "number" && Number.isFinite(req.body.receivedAmount) && req.body.receivedAmount >= 0) {
+                    registration.payment.receivedAmount = req.body.receivedAmount;
+                } else if (registration.payment.receivedAmount == null && registration.payment.expectedAmount != null) {
+                    registration.payment.receivedAmount = registration.payment.expectedAmount;
+                }
             } else {
                 registration.payment.verifiedBy = null;
                 registration.payment.verifiedAt = null;
+                registration.payment.receivedAmount = null;
             }
 
             // Append audit entry

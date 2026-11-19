@@ -52,6 +52,25 @@ const teamSchema = new mongoose.Schema(
                 default: null
             },
 
+            expectedAmount: {
+                type: Number,
+                min: 0,
+                default: null
+            },
+
+            receivedAmount: {
+                type: Number,
+                min: 0,
+                default: null
+            },
+
+            currency: {
+                type: String,
+                default: "INR",
+                uppercase: true,
+                trim: true
+            },
+
             verifiedBy: {
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User",

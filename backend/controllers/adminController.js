@@ -4,6 +4,7 @@ const User = require("../models/User");
 const Event = require("../models/Event");
 const Registration = require("../models/Registration");
 const Team = require("../models/Team");
+const financialAnalyticsService = require("../services/financialAnalyticsService");
 const { getCertificateEligibility } = require("../utils/certificateEligibility");
 const { attachEventParticipantCounts } = require("../utils/eventParticipantCounts");
 
@@ -31,6 +32,12 @@ const getIndividualPayments = async (req, res) => {
 
         const filter = { team: null, status: "REGISTERED" };
         if (query.status !== "ALL") filter["payment.status"] = query.status;
+        if (req.query.eventId) {
+            if (!mongoose.Types.ObjectId.isValid(req.query.eventId)) {
+                return res.status(400).json({ success: false, message: "Invalid event ID" });
+            }
+            filter.event = new mongoose.Types.ObjectId(req.query.eventId);
+        }
         if (query.search) {
             const pattern = { $regex: escapedSearch(query.search), $options: "i" };
             const [users, events] = await Promise.all([
@@ -41,7 +48,8 @@ const getIndividualPayments = async (req, res) => {
                 { "participantDetails.fullName": pattern },
                 { "participantDetails.mobileNumber": pattern },
                 { "participantDetails.collegeName": pattern },
-                { "participantDetails.department": pattern }
+                { "participantDetails.department": pattern },
+                { "payment.cashReceiverName": pattern }
             ];
             if (users.length) clauses.push({ user: { $in: users } });
             if (events.length) clauses.push({ event: { $in: events } });
@@ -50,9 +58,10 @@ const getIndividualPayments = async (req, res) => {
 
         const [records, total] = await Promise.all([
             Registration.find(filter)
-                .select("participantDetails.fullName participantDetails.mobileNumber participantDetails.collegeName participantDetails.department payment.method payment.status payment.proofUrl payment.verifiedAt payment.history createdAt user event")
+                .select("participantDetails.fullName participantDetails.mobileNumber participantDetails.collegeName participantDetails.department payment.method payment.status payment.proofUrl payment.cashReceiverName payment.expectedAmount payment.receivedAmount payment.currency payment.verifiedBy payment.verifiedAt payment.history createdAt user event")
                 .populate("user", "name email -_id")
-                .populate("event", "name category startDate -_id")
+                .populate("event", "name category startDate registration.registrationFee")
+                .populate("payment.verifiedBy", "name email")
                 .populate("payment.history.changedBy", "name email")
                 .sort({ createdAt: -1, _id: -1 })
                 .skip((query.page - 1) * query.limit)
@@ -79,13 +88,22 @@ const getTeamPayments = async (req, res) => {
 
         const filter = { status: "REGISTERED" };
         if (query.status !== "ALL") filter["payment.status"] = query.status;
+        if (req.query.eventId) {
+            if (!mongoose.Types.ObjectId.isValid(req.query.eventId)) {
+                return res.status(400).json({ success: false, message: "Invalid event ID" });
+            }
+            filter.event = new mongoose.Types.ObjectId(req.query.eventId);
+        }
         if (query.search) {
             const pattern = { $regex: escapedSearch(query.search), $options: "i" };
             const [leaders, events] = await Promise.all([
                 User.find({ $or: [{ name: pattern }, { email: pattern }] }).distinct("_id"),
                 Event.find({ name: pattern }).distinct("_id")
             ]);
-            const clauses = [{ teamName: pattern }];
+            const clauses = [
+                { teamName: pattern },
+                { "payment.cashReceiverName": pattern }
+            ];
             if (leaders.length) clauses.push({ leader: { $in: leaders } });
             if (events.length) clauses.push({ event: { $in: events } });
             filter.$or = clauses;
@@ -93,9 +111,10 @@ const getTeamPayments = async (req, res) => {
 
         const [records, total] = await Promise.all([
             Team.find(filter)
-                .select("teamName memberCount leader payment.method payment.status payment.proofUrl payment.verifiedAt payment.history createdAt status event")
+                .select("teamName memberCount leader payment.method payment.status payment.proofUrl payment.cashReceiverName payment.expectedAmount payment.receivedAmount payment.currency payment.verifiedBy payment.verifiedAt payment.history createdAt status event")
                 .populate("leader", "name email -_id")
-                .populate("event", "name category startDate -_id")
+                .populate("event", "name category startDate registration.registrationFee")
+                .populate("payment.verifiedBy", "name email")
                 .populate("payment.history.changedBy", "name email")
                 .sort({ createdAt: -1, _id: -1 })
                 .skip((query.page - 1) * query.limit)
@@ -112,6 +131,24 @@ const getTeamPayments = async (req, res) => {
     } catch (error) {
         console.error("Get team payments error:", error);
         return res.status(500).json({ success: false, message: "Failed to fetch team payments" });
+    }
+};
+
+const getFinancialSummary = async (req, res) => {
+    try {
+        const { eventId } = req.query;
+        if (eventId && !mongoose.Types.ObjectId.isValid(eventId)) {
+            return res.status(400).json({ success: false, message: "Invalid event ID" });
+        }
+
+        const data = await financialAnalyticsService.getFinancialAnalytics({ eventId });
+        return res.status(200).json(data);
+    } catch (error) {
+        console.error("Get financial summary error:", error);
+        return res.status(error.statusCode || 500).json({
+            success: false,
+            message: error.message || "Failed to fetch financial summary"
+        });
     }
 };
 
@@ -819,6 +856,7 @@ module.exports = {
     buildRegistrationSummaryPipeline,
     getIndividualPayments,
     getTeamPayments,
+    getFinancialSummary,
     getAllOrganisers,
     getAdminUsers,
     getAdminEventAttendance,

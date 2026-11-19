@@ -26,6 +26,7 @@ export interface PaymentListParams {
   limit: number;
   search: string;
   status: PaymentStatusFilter;
+  eventId?: string;
 }
 
 // ─── Payment subdocument (embedded in Registration / Team) ────────────────────
@@ -34,6 +35,11 @@ export interface PaymentSubdoc {
   method?: string;
   status?: PaymentStatus;
   proofUrl?: string | null;
+  cashReceiverName?: string | null;
+  expectedAmount?: number | null;
+  receivedAmount?: number | null;
+  currency?: string | null;
+  verifiedBy?: string | { _id?: string; name?: string; email?: string } | null;
   verifiedAt?: string | null;
   history?: PaymentHistoryEntry[];
 }
@@ -49,7 +55,13 @@ export interface IndividualPaymentRecord {
     department?: string;
   };
   user?: { name?: string; email?: string } | null;
-  event?: { name?: string; category?: string; startDate?: string } | null;
+  event?: {
+    name?: string;
+    category?: string;
+    startDate?: string;
+    registration?: { registrationFee?: number };
+    registrationFee?: number;
+  } | null;
   payment?: PaymentSubdoc;
   createdAt?: string;
 }
@@ -62,7 +74,13 @@ export interface TeamPaymentRecord {
   memberCount?: number;
   status?: string;
   leader?: { name?: string; email?: string } | null;
-  event?: { name?: string; category?: string; startDate?: string } | null;
+  event?: {
+    name?: string;
+    category?: string;
+    startDate?: string;
+    registration?: { registrationFee?: number };
+    registrationFee?: number;
+  } | null;
   payment?: PaymentSubdoc;
   createdAt?: string;
 }
@@ -80,6 +98,80 @@ export interface PaymentQueueResult<T> {
 export interface PaymentUpdatePayload {
   status: PaymentDecision;
   reason?: string;
+  receivedAmount?: number;
+}
+
+// ─── Financial summary & analytics interfaces ─────────────────────────────────
+
+export interface FinancialSummaryData {
+  totalVerifiedAmount: number;
+  cashVerifiedAmount: number;
+  upiVerifiedAmount: number;
+  otherVerifiedAmount: number;
+  pendingExpectedAmount: number;
+  rejectedExpectedAmount: number;
+  verifiedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  individualCount: number;
+  teamCount: number;
+  collectionPercentage: number | null;
+  unknownAmountCount: number;
+  isComplete: boolean;
+  currency: string;
+  calculatedAt: string;
+}
+
+export interface PaymentMethodBreakdown {
+  method: string;
+  amount: number;
+  count: number;
+  percentage: number;
+}
+
+export interface CashReceiverSummary {
+  receiverName: string;
+  isUnrecorded: boolean;
+  verifiedAmount: number;
+  pendingAmount: number;
+  verifiedCount: number;
+  pendingCount: number;
+  unknownAmountCount: number;
+  events?: Array<{
+    eventId: string;
+    eventName: string;
+    verifiedAmount: number;
+    verifiedCount: number;
+  }>;
+}
+
+export interface EventFinancialBreakdown {
+  eventId: string;
+  eventName: string;
+  category?: string;
+  verifiedAmount: number;
+  cashAmount: number;
+  upiAmount: number;
+  pendingAmount: number;
+  verifiedCount: number;
+  pendingCount: number;
+  unknownAmountCount: number;
+  collectionPercentage: number | null;
+}
+
+export interface FinancialAnalyticsResponse {
+  success: boolean;
+  summary: FinancialSummaryData;
+  methodBreakdown: PaymentMethodBreakdown[];
+  cashReceivers: CashReceiverSummary[];
+  eventBreakdown: EventFinancialBreakdown[];
+  event?: {
+    _id: string;
+    name: string;
+    category: string;
+    startDate?: string;
+    registrationFee?: number;
+  } | null;
 }
 
 export interface PaymentUpdateResult {
@@ -151,6 +243,17 @@ export async function updateTeamPayment(
   const { data } = await api.patch<PaymentUpdateResult>(
     `/teams/${id}/payment`,
     payload
+  );
+  return data;
+}
+
+/**
+ * Fetch aggregated financial summary and analytics
+ */
+export async function getFinancialSummary(params?: { eventId?: string }) {
+  const { data } = await api.get<FinancialAnalyticsResponse>(
+    "/admin/payments/summary",
+    { params }
   );
   return data;
 }

@@ -412,8 +412,9 @@ const registerTeam = async (req, res) => {
             }
 
             // Create one Team with shared payment
+            const fee = event.registration.registrationFee || 0;
             const paymentStatus =
-                event.registration.registrationFee === 0
+                fee === 0
                     ? "NOT_REQUIRED"
                     : "PENDING";
 
@@ -427,6 +428,9 @@ const registerTeam = async (req, res) => {
                         payment: {
                             method: paymentMethod,
                             status: paymentStatus,
+                            expectedAmount: fee,
+                            receivedAmount: fee === 0 ? 0 : null,
+                            currency: "INR",
                             ...paymentDetails
                         }
                     }
@@ -451,7 +455,10 @@ const registerTeam = async (req, res) => {
                 // Team payment is tracked on the Team document.
                 payment: {
                     method: "NONE",
-                    status: "NOT_REQUIRED"
+                    status: "NOT_REQUIRED",
+                    expectedAmount: null,
+                    receivedAmount: null,
+                    currency: "INR"
                 }
             }));
 
@@ -762,9 +769,16 @@ const updateTeamPaymentStatus = async (req, res) => {
             if (requestedStatus === "VERIFIED") {
                 team.payment.verifiedBy = req.user._id;
                 team.payment.verifiedAt = changedAt;
+
+                if (typeof req.body?.receivedAmount === "number" && Number.isFinite(req.body.receivedAmount) && req.body.receivedAmount >= 0) {
+                    team.payment.receivedAmount = req.body.receivedAmount;
+                } else if (team.payment.receivedAmount == null && team.payment.expectedAmount != null) {
+                    team.payment.receivedAmount = team.payment.expectedAmount;
+                }
             } else {
                 team.payment.verifiedBy = null;
                 team.payment.verifiedAt = null;
+                team.payment.receivedAmount = null;
             }
 
             // Append audit entry

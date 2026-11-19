@@ -11,6 +11,7 @@ const {
     getDashboard,
     getIndividualPayments,
     getTeamPayments,
+    getFinancialSummary,
     getAllOrganisers,
     getAdminUsers,
     getAdminEventAttendance,
@@ -28,6 +29,7 @@ router.get("/events/:id/attendance", getAdminEventAttendance);
 router.get("/events/:id/certificates", getEventCertificates);
 router.post("/certificates/:registrationId/issue", issueIndividualCertificate);
 router.delete("/events/:id", deleteAdminEvent);
+router.get("/payments/summary", getFinancialSummary);
 router.get("/payments/individual", getIndividualPayments);
 router.get("/payments/teams", getTeamPayments);
 

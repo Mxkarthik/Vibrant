@@ -11,6 +11,9 @@ export interface PaymentActionRecordInfo {
   title: string;
   subtitle: string;
   eventName?: string;
+  expectedAmount?: number | null;
+  eventFee?: number | null;
+  method?: string | null;
   currentStatus: PaymentStatus | string;
 }
 
@@ -20,7 +23,7 @@ interface PaymentActionDialogProps {
   working: boolean;
   error?: string | null;
   onCancel: () => void;
-  onConfirm: (reason?: string) => void;
+  onConfirm: (reason?: string, receivedAmount?: number) => void;
 }
 
 export default function PaymentActionDialog({
@@ -31,7 +34,17 @@ export default function PaymentActionDialog({
   onCancel,
   onConfirm,
 }: PaymentActionDialogProps) {
+  const effectiveExpected =
+    record.expectedAmount != null
+      ? record.expectedAmount
+      : record.eventFee != null
+      ? record.eventFee
+      : null;
+
   const [reason, setReason] = useState("");
+  const [amountInput, setAmountInput] = useState<string>(
+    effectiveExpected != null ? String(effectiveExpected) : ""
+  );
   const [validationError, setValidationError] = useState<string | null>(null);
   const dialogRef = useAccessibleDialog(onCancel, working);
 
@@ -81,8 +94,22 @@ export default function PaymentActionDialog({
       }
     }
 
+    let confirmedAmount: number | undefined;
+    if (isVerify) {
+      if (amountInput.trim() !== "") {
+        const parsed = Number(amountInput.trim());
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          setValidationError("Enter a valid received payment amount (₹0 or greater).");
+          return;
+        }
+        confirmedAmount = parsed;
+      } else if (effectiveExpected != null) {
+        confirmedAmount = effectiveExpected;
+      }
+    }
+
     setValidationError(null);
-    onConfirm(trimmed || undefined);
+    onConfirm(trimmed || undefined, confirmedAmount);
   };
 
   return (
@@ -146,6 +173,37 @@ export default function PaymentActionDialog({
         )}
 
         <form onSubmit={handleSubmit}>
+          {isVerify && (
+            <div className="payment-dialog-field">
+              <label htmlFor="payment-received-amount">
+                Confirmed received amount (₹)
+                <span className="optional-mark">
+                  {effectiveExpected != null
+                    ? record.method === "CASH"
+                      ? ` (Event price: ₹${effectiveExpected})`
+                      : ` (Expected: ₹${effectiveExpected})`
+                    : " (optional)"}
+                </span>
+              </label>
+              <input
+                id="payment-received-amount"
+                type="number"
+                min="0"
+                step="1"
+                value={amountInput}
+                onChange={event => setAmountInput(event.target.value)}
+                placeholder={effectiveExpected != null ? String(effectiveExpected) : "Enter confirmed received amount (₹)"}
+                className="payment-dialog-input"
+                disabled={working}
+              />
+              {record.method === "CASH" && (
+                <p style={{ margin: "4px 0 0", fontSize: "11px", color: "#607482" }}>
+                  Cash received is the price of the event they registered for (₹{effectiveExpected ?? 0}).
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="payment-dialog-field">
             <label htmlFor="payment-decision-reason">
               {isReject ? "Reason for rejection" : "Note / Reason"}
