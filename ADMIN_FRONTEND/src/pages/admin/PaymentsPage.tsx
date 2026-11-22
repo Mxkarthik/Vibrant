@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -71,7 +71,9 @@ export default function PaymentsPage() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
 
   // Event selection state
   const [events, setEvents] = useState<EventRecord[]>([]);
@@ -94,6 +96,14 @@ export default function PaymentsPage() {
   const [notice, setNotice] = useState<{ message: string; error: boolean } | null>(null);
   const [proofPreview, setProofPreview] = useState<string | null>(null);
 
+  // Active query refs for thread-safe closures and race-condition prevention
+  const requestIdRef = useRef(0);
+  const recordsRef = useRef<DrawerPaymentRecord[]>([]);
+  recordsRef.current = records;
+
+  const analyticsRef = useRef<FinancialAnalyticsResponse | null>(null);
+  analyticsRef.current = analytics;
+
   // Load events list for the selector
   const loadEventsList = useCallback(async () => {
     try {
@@ -104,57 +114,106 @@ export default function PaymentsPage() {
     }
   }, []);
 
-  // Load financial summary analytics
-  const loadAnalytics = useCallback(async (eventId?: string) => {
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
+  // Load financial summary analytics with silent background refresh support
+  const loadAnalytics = useCallback(async (eventId?: string, options?: { isBackground?: boolean }) => {
+    const isBackground = options?.isBackground ?? false;
+    // Only show skeleton on initial load when no data exists yet
+    if (!isBackground && !analyticsRef.current) {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+    }
     try {
       const response = await getFinancialSummary(eventId ? { eventId } : undefined);
       setAnalytics(response);
       setLastUpdated(new Date());
     } catch (requestError) {
-      setAnalyticsError(getApiErrorMessage(requestError, "Financial summary could not be loaded."));
+      // If we already have analytics data, don't destroy it on a background refresh failure
+      if (!analyticsRef.current) {
+        setAnalyticsError(getApiErrorMessage(requestError, "Financial summary could not be loaded."));
+      }
     } finally {
       setAnalyticsLoading(false);
     }
   }, []);
 
-  // Load paginated payment transactions
-  const loadPayments = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const queryParams: PaymentListParams = {
-        ...params,
-        ...(selectedEventId ? { eventId: selectedEventId } : {}),
-      };
+  // Load paginated payment transactions with race condition protection and State A/B/C separation
+  const loadPayments = useCallback(
+    async (options?: { isBackground?: boolean }) => {
+      const isBackground = options?.isBackground ?? false;
+      const currentRequestId = ++requestIdRef.current;
 
-      const response =
-        type === "individual"
-          ? await getIndividualPayments(queryParams)
-          : await getTeamPayments(queryParams);
+      if (!isBackground) {
+        setLoading(true);
+        setError(null);
+      } else {
+        setRefreshing(true);
+      }
 
-      const mapped: DrawerPaymentRecord[] =
-        type === "individual"
-          ? (response.payments as IndividualPaymentRecord[]).map(mapIndividualPayment)
-          : (response.payments as TeamPaymentRecord[]).map(mapTeamPayment);
+      try {
+        const queryParams: PaymentListParams = {
+          ...params,
+          ...(selectedEventId ? { eventId: selectedEventId } : {}),
+        };
 
-      setRecords(mapped);
-      setTotal(response.pagination.total);
-      setTotalPages(response.pagination.totalPages);
+        const response =
+          type === "individual"
+            ? await getIndividualPayments(queryParams)
+            : await getTeamPayments(queryParams);
 
-      // Keep currently viewed modal record synchronized with fresh data
-      setSelected(current => {
-        if (!current) return null;
-        const matching = mapped.find(r => r.id === current.id);
-        return matching || current;
-      });
-    } catch (requestError) {
-      setError(getApiErrorMessage(requestError, "Payment records could not be loaded."));
-    } finally {
-      setLoading(false);
-    }
-  }, [type, params, selectedEventId]);
+        // Defensive validation against malformed or unexpected responses
+        if (!response || !Array.isArray(response.payments)) {
+          throw new Error("Invalid response format received from payments API.");
+        }
+
+        // Stale response guard: if a newer request began while this was in-flight, discard it
+        if (currentRequestId !== requestIdRef.current) {
+          return;
+        }
+
+        const mapped: DrawerPaymentRecord[] =
+          type === "individual"
+            ? (response.payments as IndividualPaymentRecord[]).map(mapIndividualPayment)
+            : (response.payments as TeamPaymentRecord[]).map(mapTeamPayment);
+
+        setRecords(mapped);
+        setTotal(response.pagination?.total ?? mapped.length);
+        setTotalPages(response.pagination?.totalPages ?? 1);
+        setError(null);
+        setRefreshWarning(null);
+
+        // Keep currently viewed modal record synchronized with fresh data
+        setSelected(current => {
+          if (!current) return null;
+          const matching = mapped.find(r => r.id === current.id);
+          return matching || current;
+        });
+      } catch (requestError) {
+        if (currentRequestId !== requestIdRef.current) {
+          return;
+        }
+
+        const message = getApiErrorMessage(
+          requestError,
+          "Payment records could not be loaded."
+        );
+
+        // State B (Refresh failure): If records already exist or this was a background refresh,
+        // preserve existing records and show nonblocking warning banner with retry action
+        if (isBackground || recordsRef.current.length > 0) {
+          setRefreshWarning("Unable to refresh payments. Showing last updated data.");
+        } else {
+          // State A (Hard failure on initial load with no existing records)
+          setError(message);
+        }
+      } finally {
+        if (currentRequestId === requestIdRef.current) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [type, params, selectedEventId]
+  );
 
   useEffect(() => {
     void loadEventsList();
@@ -191,28 +250,51 @@ export default function PaymentsPage() {
   }, [working]);
 
   const refreshAll = async () => {
-    await Promise.all([loadPayments(), loadAnalytics(selectedEventId), loadEventsList()]);
+    setRefreshing(true);
+    await Promise.all([
+      loadPayments({ isBackground: false }),
+      loadAnalytics(selectedEventId, { isBackground: false }),
+      loadEventsList(),
+    ]);
+    setRefreshing(false);
   };
 
-  // Background polling: refresh analytics every 15 seconds while page is visible.
+  // Hold latest callback references in a ref so background polling NEVER closes over stale state
+  const latestPollRef = useRef<() => Promise<void>>();
+  latestPollRef.current = async () => {
+    await Promise.all([
+      loadAnalytics(selectedEventId, { isBackground: true }),
+      loadPayments({ isBackground: true }),
+    ]);
+  };
+
+  // Background polling: refresh analytics & active payment tab every 15 seconds while page is visible.
   // Pauses when page is hidden (user switches tabs) to avoid unnecessary requests.
+  // Uses ref closure to ensure the current tab, filters, and event are ALWAYS queried.
   useEffect(() => {
     const POLL_INTERVAL_MS = 15_000;
     let timerId: ReturnType<typeof window.setTimeout> | null = null;
+    let isMounted = true;
 
     const schedulePoll = () => {
+      if (!isMounted) return;
       timerId = window.setTimeout(async () => {
+        if (!isMounted) return;
         if (document.visibilityState === "visible") {
-          await Promise.all([loadAnalytics(selectedEventId), loadPayments()]);
+          try {
+            await latestPollRef.current?.();
+          } catch {
+            // Polling exceptions handled gracefully within loadPayments / loadAnalytics
+          }
         }
         schedulePoll();
       }, POLL_INTERVAL_MS);
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
+      if (document.visibilityState === "visible" && isMounted) {
         // Resume polling immediately on return
-        void loadAnalytics(selectedEventId);
+        void latestPollRef.current?.();
       }
     };
 
@@ -220,19 +302,25 @@ export default function PaymentsPage() {
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      isMounted = false;
       if (timerId !== null) window.clearTimeout(timerId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEventId]);
+  }, []);
 
   const handleEventChange = (nextEventId: string) => {
+    if (nextEventId === selectedEventId) return;
+    requestIdRef.current++;
     setSelectedEventId(nextEventId);
     setParams(current => ({ ...current, page: 1 }));
     setSelected(null);
+    setRefreshWarning(null);
+    setLoading(true);
   };
 
   const changeTab = (next: PaymentType) => {
+    if (next === type) return;
+    requestIdRef.current++;
     setType(next);
     setParams(current => ({ ...current, page: 1 }));
     setSearchInput("");
@@ -240,10 +328,19 @@ export default function PaymentsPage() {
     setDecision(null);
     setDialogError(null);
     setNotice(null);
+    setRefreshWarning(null);
+    setRecords([]);
+    setLoading(true);
   };
 
-  const setStatus = (status: PaymentStatusFilter) =>
+  const setStatus = (status: PaymentStatusFilter) => {
+    if (status === params.status) return;
+    requestIdRef.current++;
     setParams(current => ({ ...current, status, page: 1 }));
+    setSelected(null);
+    setRefreshWarning(null);
+    setLoading(true);
+  };
 
   const handleActionInitiate = (targetDecision: PaymentDecision) => {
     setDialogError(null);
@@ -300,9 +397,9 @@ export default function PaymentsPage() {
             </span>
             <Button
               variant="secondary"
-              icon={<RefreshCw size={14} className={analyticsLoading || loading ? "is-spinning" : ""} />}
+              icon={<RefreshCw size={14} className={analyticsLoading || loading || refreshing ? "is-spinning" : ""} />}
               onClick={() => void refreshAll()}
-              disabled={loading || analyticsLoading}
+              disabled={loading || analyticsLoading || refreshing}
             >
               Refresh
             </Button>
@@ -779,6 +876,41 @@ export default function PaymentsPage() {
             <option value="NOT_REQUIRED">Not required</option>
           </select>
         </div>
+
+        {refreshWarning && (
+          <div
+            className="payment-notice is-error"
+            role="alert"
+            style={{ margin: "14px 17px 0" }}
+          >
+            <AlertCircle size={15} />
+            <span>{refreshWarning}</span>
+            <button
+              type="button"
+              onClick={() => void loadPayments({ isBackground: false })}
+              style={{
+                marginLeft: "8px",
+                background: "none",
+                border: "none",
+                color: "#315b79",
+                fontWeight: 600,
+                textDecoration: "underline",
+                cursor: "pointer",
+                padding: 0,
+                fontSize: "10px",
+              }}
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => setRefreshWarning(null)}
+              aria-label="Dismiss message"
+              style={{ marginLeft: "auto" }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {error ? (
           <div className="payment-state">
