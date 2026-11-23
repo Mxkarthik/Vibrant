@@ -21,20 +21,24 @@ function PageLoader() {
   );
 }
 
-function ActiveDashboardRedirect() {
+function ActiveDashboardRoute() {
   const activeEventId = getActiveEventId();
   if (activeEventId) {
     return <Navigate to={`/events/${activeEventId}/dashboard`} replace />;
   }
-  return <Navigate to="/events" replace />;
+  return <EventDashboardPage />;
 }
 
-function ActiveTrackerRedirect() {
+function ActiveTrackerRoute() {
   const activeEventId = getActiveEventId();
   if (activeEventId) {
     return <Navigate to={`/events/${activeEventId}/attendance`} replace />;
   }
-  return <Navigate to="/events" replace />;
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <AttendanceTrackerPage />
+    </Suspense>
+  );
 }
 
 export default function App() {
@@ -79,8 +83,8 @@ export default function App() {
               </Suspense>
             }
           />
-          <Route path="/dashboard" element={<ActiveDashboardRedirect />} />
-          <Route path="/tracker" element={<ActiveTrackerRedirect />} />
+          <Route path="/dashboard" element={<ActiveDashboardRoute />} />
+          <Route path="/tracker" element={<ActiveTrackerRoute />} />
         </Route>
       </Route>
 

@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   CheckCircle2,
   Sparkles,
+  BarChart2,
 } from "lucide-react";
 import { getEventById, getEvents, filterAccessibleEvents } from "../api/eventService";
 import { getEventAttendance, exportEventAttendance } from "../api/attendanceService";
@@ -99,6 +100,62 @@ export default function EventDashboardPage() {
 
   const loading = eventLoading || attendanceLoading;
   const isCombo = Boolean(event?.multiEventAccess?.enabled);
+
+  if (!eventId) {
+    return (
+      <div className="dashboard-page-container container">
+        {/* 1. Header Context */}
+        <div className="dashboard-header-wrap">
+          <div className="dashboard-header-top">
+            <div className="dashboard-title-section">
+              <h1 className="dashboard-page-title">Event Dashboard</h1>
+              <p className="dashboard-page-subtitle">
+                Real-time check-in metrics, attendee breakdowns and venue operational status.
+              </p>
+            </div>
+          </div>
+
+          {/* Event Context Bar with Event Switcher */}
+          <div className="dashboard-context-bar">
+            <div className="dashboard-context-left">
+              <EventSelector
+                events={accessibleEvents}
+                selectedEventId=""
+                onSelectEvent={(newId) => {
+                  setActiveEventId(newId);
+                  navigate(`/events/${newId}/dashboard`);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Informative No-Event Prompt Card */}
+        <div className="dashboard-card" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div
+            style={{
+              width: "56px",
+              height: "56px",
+              borderRadius: "50%",
+              background: "var(--primary-light)",
+              color: "var(--primary)",
+              display: "grid",
+              placeItems: "center",
+              margin: "0 auto 16px",
+            }}
+          >
+            <BarChart2 size={28} />
+          </div>
+          <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--navy)", marginBottom: "8px" }}>
+            Select an Event to View Dashboard
+          </h2>
+          <p style={{ fontSize: "13px", color: "var(--secondary)", maxWidth: "420px", margin: "0 auto", lineHeight: 1.5 }}>
+            Choose an event venue from the dropdown above to view check-in statistics and operational metrics.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (loading && !report) {
     return (

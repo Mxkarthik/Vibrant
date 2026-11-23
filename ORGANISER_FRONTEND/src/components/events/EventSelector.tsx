@@ -14,8 +14,8 @@ export default function EventSelector({
   isLoading,
 }: EventSelectorProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-      <label htmlFor="event-selector" style={{ fontSize: "12px", fontWeight: 700, color: "var(--secondary)" }}>
+    <div className="event-selector-container">
+      <label htmlFor="event-selector" className="event-selector-label">
         Active Event:
       </label>
       <select
@@ -24,18 +24,7 @@ export default function EventSelector({
         value={selectedEventId}
         disabled={isLoading || events.length === 0}
         onChange={(e) => onSelectEvent(e.target.value)}
-        style={{
-          padding: "7px 12px",
-          borderRadius: "var(--radius-sm)",
-          border: "1px solid var(--border)",
-          background: "var(--white)",
-          color: "var(--navy)",
-          fontSize: "13px",
-          fontWeight: 600,
-          outline: "none",
-          cursor: "pointer",
-          boxShadow: "var(--shadow-xs)",
-        }}
+        className="event-selector-select"
       >
         <option value="" disabled>
           {isLoading ? "Loading events…" : events.length === 0 ? "No accessible events" : "Choose an event"}

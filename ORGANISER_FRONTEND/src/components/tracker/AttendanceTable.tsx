@@ -68,7 +68,7 @@ export default function AttendanceTable({
               tabIndex={0}
               aria-label={`View details for ${fullName}`}
             >
-              {/* Card Main: Avatar + Name & Ref + Status Pill */}
+              {/* Row 1: Avatar + Name & Ref + Chevron */}
               <div className="tracker-card-main">
                 <div className="tracker-avatar-circle" aria-hidden="true">
                   {initials}
@@ -81,17 +81,24 @@ export default function AttendanceTable({
                   <div className="tracker-card-ref-row">
                     <span className="tracker-ref-code">{refShort}</span>
                     {reg.participantDetails?.rollNumber && (
-                      <span>{reg.participantDetails.rollNumber}</span>
+                      <span className="tracker-ref-roll">{reg.participantDetails.rollNumber}</span>
                     )}
                     {reg.participantDetails?.collegeName && (
-                      <span style={{ maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span className="tracker-ref-college">
                         • {reg.participantDetails.collegeName}
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexShrink: 0 }}>
+                <div className="tracker-card-chevron">
+                  <ChevronRight size={18} color="var(--muted)" />
+                </div>
+              </div>
+
+              {/* Row 2: Attendance Status + Cohort + Type + Payment */}
+              <div className="tracker-card-footer">
+                <div className="tracker-card-tags">
                   {isPresent ? (
                     <span className="tracker-status-badge tracker-status-present">
                       <CheckCircle2 size={12} />
@@ -103,13 +110,7 @@ export default function AttendanceTable({
                       <span>Absent</span>
                     </span>
                   )}
-                  <ChevronRight size={16} color="var(--muted)" />
-                </div>
-              </div>
 
-              {/* Card Footer: Cohort, Type, Payment */}
-              <div className="tracker-card-footer">
-                <div className="tracker-card-tags">
                   {isCombo ? (
                     <span className="badge badge-combo">
                       <Layers size={10} style={{ marginRight: "3px" }} />
@@ -145,7 +146,7 @@ export default function AttendanceTable({
                 </div>
 
                 {isPresent && reg.attendance.checkedInAt && (
-                  <span style={{ fontSize: "11px", color: "var(--muted)", marginLeft: "auto" }}>
+                  <span className="tracker-card-time">
                     {formatTime(reg.attendance.checkedInAt)}
                   </span>
                 )}

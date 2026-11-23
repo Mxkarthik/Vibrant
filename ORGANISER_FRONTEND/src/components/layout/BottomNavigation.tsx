@@ -37,14 +37,14 @@ export default function BottomNavigation() {
         if (activeEventId) {
           navigate(`/events/${activeEventId}/attendance`);
         } else {
-          navigate("/events");
+          navigate("/tracker");
         }
         break;
       case "dashboard":
         if (activeEventId) {
           navigate(`/events/${activeEventId}/dashboard`);
         } else {
-          navigate("/events");
+          navigate("/dashboard");
         }
         break;
     }

@@ -12,6 +12,7 @@ import {
   ChevronRight,
   AlertCircle,
   X,
+  ClipboardList,
 } from "lucide-react";
 import { getEventById, getEvents, filterAccessibleEvents } from "../api/eventService.ts";
 import {
@@ -166,6 +167,62 @@ export default function AttendanceTrackerPage() {
     void refetchStats();
     void refetchParticipants();
   };
+
+  if (!eventId) {
+    return (
+      <div className="tracker-page-container container">
+        {/* 1. Header & Navigation Context */}
+        <div className="tracker-header-wrap">
+          <div className="tracker-header-top">
+            <div className="tracker-title-section">
+              <h1 className="tracker-page-title">Attendance Tracker</h1>
+              <p className="tracker-page-subtitle">
+                Unified live attendance tracker for both individual and combo participants.
+              </p>
+            </div>
+          </div>
+
+          {/* Event Context Bar with Event Switcher */}
+          <div className="tracker-context-bar">
+            <div className="tracker-context-left">
+              <EventSelector
+                events={accessibleEvents}
+                selectedEventId=""
+                onSelectEvent={(newId) => {
+                  setActiveEventId(newId);
+                  navigate(`/events/${newId}/attendance`);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Informative No-Event Prompt Card */}
+        <div className="tracker-card" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div
+            style={{
+              width: "56px",
+              height: "56px",
+              borderRadius: "50%",
+              background: "var(--primary-light)",
+              color: "var(--primary)",
+              display: "grid",
+              placeItems: "center",
+              margin: "0 auto 16px",
+            }}
+          >
+            <ClipboardList size={28} />
+          </div>
+          <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--navy)", marginBottom: "8px" }}>
+            Select an Event to View Attendance
+          </h2>
+          <p style={{ fontSize: "13px", color: "var(--secondary)", maxWidth: "420px", margin: "0 auto", lineHeight: 1.5 }}>
+            Choose an event venue from the dropdown above to view participant roster and attendance metrics.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (eventLoading && !event) {
     return (
@@ -382,7 +439,7 @@ export default function AttendanceTrackerPage() {
         {/* Responsive Server Filters Row */}
         <div className="tracker-filters-row tracker-filters-grid">
           {/* Filter: Attendance */}
-          <div className="filter-select-wrapper" style={{ flex: 1, minWidth: "130px" }}>
+          <div className="filter-select-wrapper">
             <select
               className="tracker-filter-select form-select"
               value={attendanceFilter}
@@ -396,7 +453,7 @@ export default function AttendanceTrackerPage() {
           </div>
 
           {/* Filter: Type */}
-          <div className="filter-select-wrapper" style={{ flex: 1, minWidth: "130px" }}>
+          <div className="filter-select-wrapper">
             <select
               className="tracker-filter-select form-select"
               value={typeFilter}
@@ -410,7 +467,7 @@ export default function AttendanceTrackerPage() {
           </div>
 
           {/* Filter: Payment */}
-          <div className="filter-select-wrapper" style={{ flex: 1, minWidth: "130px" }}>
+          <div className="filter-select-wrapper">
             <select
               className="tracker-filter-select form-select"
               value={paymentStatusFilter}
@@ -426,7 +483,7 @@ export default function AttendanceTrackerPage() {
           </div>
 
           {/* Filter: Registration Status */}
-          <div className="filter-select-wrapper" style={{ flex: 1, minWidth: "130px" }}>
+          <div className="filter-select-wrapper">
             <select
               className="tracker-filter-select form-select"
               value={statusFilter}
