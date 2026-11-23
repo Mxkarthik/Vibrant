@@ -685,7 +685,7 @@ export default function EventScanner({
                     </label>
                     <select
                       id="camera-select"
-                      className="search-input"
+                      className="search-input modern-select"
                       value={selectedDeviceId}
                       onChange={(e) => {
                         setSelectedDeviceId(e.target.value);
@@ -694,7 +694,7 @@ export default function EventScanner({
                           setTimeout(() => void startCamera(), 100);
                         }
                       }}
-                      style={{ width: "100%", fontSize: "13px", padding: "8px 12px" }}
+                      style={{ width: "100%", fontSize: "13px" }}
                     >
                       {videoDevices.map((dev, idx) => (
                         <option key={dev.deviceId || idx} value={dev.deviceId}>
@@ -1199,8 +1199,8 @@ export default function EventScanner({
                             scan.outcome === "SUCCESS"
                               ? "var(--success)"
                               : scan.outcome === "DUPLICATE"
-                              ? "var(--warning)"
-                              : "var(--error)",
+                                ? "var(--warning)"
+                                : "var(--error)",
                         }}
                       />
                       <div>
@@ -1220,8 +1220,8 @@ export default function EventScanner({
                           scan.outcome === "SUCCESS"
                             ? "var(--success)"
                             : scan.outcome === "DUPLICATE"
-                            ? "var(--warning)"
-                            : "var(--error)",
+                              ? "var(--warning)"
+                              : "var(--error)",
                       }}
                     >
                       {scan.outcome === "SUCCESS" ? "Checked In" : scan.outcome}

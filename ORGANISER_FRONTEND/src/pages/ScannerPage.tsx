@@ -138,8 +138,7 @@ export default function ScannerPage() {
             </label>
             <select
               id="landing-event-select"
-              className="search-input"
-              style={{ padding: "10px 14px", height: "auto", cursor: "pointer", fontWeight: 600 }}
+              className="search-input scanner-event-select modern-select"
               disabled={eventsLoading || accessibleEvents.length === 0}
               value=""
               onChange={(e) => {
@@ -159,8 +158,8 @@ export default function ScannerPage() {
                 {eventsLoading
                   ? "Loading events…"
                   : accessibleEvents.length === 0
-                  ? "No accessible events found"
-                  : "Choose an event to activate scanner…"}
+                    ? "No accessible events found"
+                    : "Choose an event to activate scanner…"}
               </option>
               {accessibleEvents.map((evt) => {
                 const isPkg = Boolean(evt.multiEventAccess?.enabled);
@@ -205,8 +204,7 @@ export default function ScannerPage() {
           </label>
           <select
             id="active-event-select"
-            className="search-input"
-            style={{ padding: "10px 14px", height: "auto", cursor: "pointer", fontWeight: 600 }}
+            className="search-input scanner-event-select modern-select"
             value={eventId}
             onChange={(e) => {
               const targetId = e.target.value;
