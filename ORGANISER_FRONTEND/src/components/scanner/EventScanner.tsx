@@ -44,14 +44,14 @@ export type ScannerLifecycleState =
   | "CAMERA_ERROR";
 
 interface EventScannerProps {
-  selectedEventId: string;
-  selectedEventName: string;
+  selectedEventId?: string;
+  selectedEventName?: string;
   isComboParent?: boolean;
 }
 
 export default function EventScanner({
-  selectedEventId,
-  selectedEventName,
+  selectedEventId = "",
+  selectedEventName = "",
   isComboParent,
 }: EventScannerProps) {
   const queryClient = useQueryClient();
@@ -468,7 +468,7 @@ export default function EventScanner({
           className={`scanner-tab-btn ${activeTab === "SCAN" ? "is-active" : ""}`}
           onClick={() => {
             setActiveTab("SCAN");
-            if (state === "IDLE" && !scanResult) {
+            if (selectedEventId && state === "IDLE" && !scanResult) {
               void startCamera();
             }
           }}
@@ -529,25 +529,47 @@ export default function EventScanner({
                   </div>
                 )}
 
-                {state === "IDLE" && (
+                {/* Pre-activation / No-Event Viewfinder Placeholder */}
+                {(!selectedEventId || state === "IDLE") && (
                   <div className="viewfinder-placeholder">
-                    <QrCode size={54} color="var(--primary)" style={{ opacity: 0.85, marginBottom: "14px" }} />
-                    <h3 style={{ fontSize: "17px", fontWeight: 700, color: "#FFFFFF", marginBottom: "6px" }}>
-                      Camera Ready
-                    </h3>
-                    <p style={{ fontSize: "13px", color: "#94A3B8", maxWidth: "320px", margin: "0 auto 18px", lineHeight: 1.4 }}>
-                      Tap Activate Camera to start scanning attendee QR tickets.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={() => void startCamera()}
-                      disabled={!selectedEventId || isComboParent}
-                      style={{ padding: "10px 22px", fontSize: "14px", fontWeight: 700 }}
-                    >
-                      <Camera size={16} />
-                      <span>Activate Camera</span>
-                    </button>
+                    <div className="viewfinder-icon-frame">
+                      <QrCode size={30} />
+                    </div>
+                    {!selectedEventId ? (
+                      <>
+                        <h3 className="viewfinder-placeholder-title">
+                          Select an Event to Begin
+                        </h3>
+                        <p className="viewfinder-placeholder-desc">
+                          Choose a physical event venue above to enable participant QR scanning.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        {/* Pre-activation Camera Ready state */}
+                        <h3 className="viewfinder-placeholder-title">
+                          Ready to Scan
+                        </h3>
+                        <p className="viewfinder-placeholder-desc">
+                          Allow camera access to start scanning participant QR codes for check-in.
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={() => void startCamera()}
+                          disabled={!selectedEventId || isComboParent}
+                          style={{
+                            padding: "10px 24px",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            borderRadius: "var(--radius-pill)",
+                          }}
+                        >
+                          <Camera size={16} />
+                          <span>Activate Camera</span>
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -603,47 +625,46 @@ export default function EventScanner({
                 )}
               </div>
 
-              {/* Viewfinder Instructions & Camera Ready Status Pill */}
+              {/* Viewfinder Instructions & Active Scanning Status Pill */}
               <div className="viewfinder-bottom-banner">
-                <span className="viewfinder-instruction">
-                  Align the QR code within the frame
-                </span>
-                <div className="viewfinder-status-pill">
-                  <span className="status-dot-green" />
-                  <span>
-                    {state === "SCANNING"
-                      ? "Scanning Active"
-                      : state === "PROCESSING"
-                      ? "Verifying..."
-                      : "Camera Ready"}
+                {state === "SCANNING" ? (
+                  <>
+                    <div className="viewfinder-status-pill">
+                      <span className="status-dot-green" />
+                      <span>Scanning Active</span>
+                    </div>
+                    <span className="viewfinder-instruction">
+                      Align the QR code within the frame to check in
+                    </span>
+                  </>
+                ) : state === "PROCESSING" ? (
+                  <span className="viewfinder-instruction">
+                    Verifying ticket eligibility…
                   </span>
-                </div>
+                ) : !selectedEventId ? (
+                  <span className="viewfinder-instruction">
+                    Choose an event above to start check-in
+                  </span>
+                ) : null}
               </div>
 
-              {/* Controls Bar: Pause / Resume / Device Switcher */}
+              {/* Controls Bar: Pause / Switcher */}
               <div className="scanner-controls-bar">
-                {state === "SCANNING" ? (
+                {/* Resume Scanner / Start Scanner controls disabled in IDLE state to eliminate duplicate buttons */}
+                {state === "SCANNING" && (
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={stopCamera}
+                    onClick={() => {
+                      stopCamera();
+                      setState("IDLE");
+                    }}
                     style={{ width: "100%", justifyContent: "center" }}
                   >
                     <CameraOff size={15} />
                     <span>Pause Scanner</span>
                   </button>
-                ) : state !== "PROCESSING" && state !== "CAMERA_ERROR" ? (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => void startCamera()}
-                    disabled={!selectedEventId || isComboParent}
-                    style={{ width: "100%", justifyContent: "center" }}
-                  >
-                    <Camera size={15} />
-                    <span>{state === "IDLE" ? "Start Scanner" : "Resume Scanner"}</span>
-                  </button>
-                ) : null}
+                )}
 
                 {/* Camera Switcher if multiple video devices exist */}
                 {videoDevices.length > 1 && (

@@ -116,11 +116,11 @@ export default function ScannerPage() {
     );
   }
 
-  // Elegant event selection landing state when navigating directly to /scanner without an active event
+  // Scanner-first landing state when navigating directly to /scanner without an active event
   if (!eventId || !event) {
     return (
       <div className="container">
-        {/* Scanner-first Header Banner */}
+        {/* Ready to Begin Check-in: Header Banner with Event Selector */}
         <div className="scanner-header-card">
           <div className="scanner-title-row">
             <div className="scanner-icon-box">
@@ -139,7 +139,7 @@ export default function ScannerPage() {
             <select
               id="landing-event-select"
               className="search-input"
-              style={{ padding: "10px 14px", height: "auto", cursor: "pointer" }}
+              style={{ padding: "10px 14px", height: "auto", cursor: "pointer", fontWeight: 600 }}
               disabled={eventsLoading || accessibleEvents.length === 0}
               value=""
               onChange={(e) => {
@@ -174,83 +174,12 @@ export default function ScannerPage() {
           </div>
         </div>
 
-        {/* Informative Prompt Card */}
-        <div className="scanner-card" style={{ textAlign: "center", padding: "40px 24px" }}>
-          <div
-            style={{
-              width: "56px",
-              height: "56px",
-              borderRadius: "50%",
-              background: "var(--primary-light)",
-              color: "var(--primary)",
-              display: "grid",
-              placeItems: "center",
-              margin: "0 auto 16px",
-            }}
-          >
-            <QrCode size={28} />
-          </div>
-          <h2 style={{ fontSize: "18px", fontWeight: 800, color: "var(--navy)", marginBottom: "8px" }}>
-            Ready to Begin Check-in
-          </h2>
-          <p style={{ fontSize: "13px", color: "var(--secondary)", maxWidth: "420px", margin: "0 auto 24px", lineHeight: 1.5 }}>
-            Select an event venue from the dropdown above or choose from your accessible events below to open the QR camera scanner.
-          </p>
-
-          {accessibleEvents.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", maxWidth: "420px", margin: "0 auto", textAlign: "left" }}>
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Select Event Venue:
-              </span>
-              {accessibleEvents.map((evt) => {
-                const isPkg = Boolean(evt.multiEventAccess?.enabled);
-                return (
-                  <button
-                    key={evt._id}
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "12px 16px",
-                      borderRadius: "var(--radius-sm)",
-                      textAlign: "left",
-                      border: isPkg ? "1px dashed var(--border)" : "1px solid var(--border)",
-                      opacity: isPkg ? 0.8 : 1,
-                    }}
-                    onClick={() => {
-                      if (!isPkg) {
-                        setActiveEventId(evt._id);
-                      } else {
-                        clearActiveEventId();
-                      }
-                      navigate(`/events/${evt._id}/scanner`);
-                    }}
-                  >
-                    <div>
-                      <strong style={{ display: "block", fontSize: "13px", color: "var(--navy)" }}>
-                        {evt.name}
-                      </strong>
-                      <span style={{ fontSize: "11px", color: "var(--secondary)" }}>
-                        {isPkg ? "Multi-Event Package (Not a venue)" : evt.venue}
-                      </span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: "12px",
-                        color: isPkg ? "var(--secondary)" : "var(--primary)",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {isPkg ? "View Notice &rarr;" : "Select Venue &rarr;"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* Scanner-first preview panel in no-event state */}
+        <EventScanner
+          selectedEventId=""
+          selectedEventName=""
+          isComboParent={false}
+        />
       </div>
     );
   }
