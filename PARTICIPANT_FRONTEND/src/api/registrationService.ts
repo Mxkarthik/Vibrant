@@ -62,6 +62,65 @@ export interface MyRegistration {
   } | null;
 }
 
+export interface TicketAccess {
+  type: "SINGLE_EVENT" | "MULTI_EVENT";
+  eligibleEventIds: string[];
+  grantedAt?: string | null;
+}
+
+export interface EntitledEventMeta {
+  _id: string;
+  name?: string;
+  venue?: string;
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+}
+
+const eventMetaCache = new Map<string, EntitledEventMeta>();
+
+export async function resolveEntitledEventMetadata(eventIds: string[], signal?: AbortSignal): Promise<Map<string, EntitledEventMeta>> {
+  const result = new Map<string, EntitledEventMeta>();
+  const toFetch: string[] = [];
+
+  for (const id of eventIds) {
+    if (!id) continue;
+    if (eventMetaCache.has(id)) {
+      result.set(id, eventMetaCache.get(id)!);
+    } else {
+      toFetch.push(id);
+    }
+  }
+
+  if (toFetch.length === 0) return result;
+
+  const settled = await Promise.allSettled(
+    toFetch.map((id) => api.get<{ success: boolean; event: EntitledEventMeta }>(`/events/${encodeURIComponent(id)}`, { signal }))
+  );
+
+  settled.forEach((res, index) => {
+    const id = toFetch[index];
+    if (res.status === "fulfilled" && res.value?.data?.event) {
+      const evt = res.value.data.event;
+      const meta: EntitledEventMeta = {
+        _id: evt._id || id,
+        name: evt.name,
+        venue: evt.venue,
+        startDate: evt.startDate,
+        endDate: evt.endDate,
+        category: evt.category,
+      };
+      eventMetaCache.set(id, meta);
+      result.set(id, meta);
+    } else {
+      const meta: EntitledEventMeta = { _id: id };
+      result.set(id, meta);
+    }
+  });
+
+  return result;
+}
+
 export interface DigitalTicket {
   registrationId: string;
   registrationType: "INDIVIDUAL" | "TEAM";
@@ -80,6 +139,8 @@ export interface DigitalTicket {
     endDate: string;
     status: string;
   };
+  access?: TicketAccess;
+  entitledEvents?: EntitledEventMeta[];
 }
 
 export async function getMyRegistrations(signal?: AbortSignal): Promise<MyRegistration[]> {

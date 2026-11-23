@@ -1,7 +1,7 @@
 import { api } from "./client";
 import { notifyRegistrationChanged } from "./registrationStateEvents";
 import type { IndividualRegistrationRequest } from "./registrationService";
-import type { DigitalTicket } from "./registrationService";
+import type { DigitalTicket, TicketAccess } from "./registrationService";
 
 export interface TeamMemberRegistrationRequest {
   participantDetails: IndividualRegistrationRequest["participantDetails"];
@@ -57,7 +57,9 @@ export interface TeamTicketsResponse {
     ticketStatus: "VALID" | "HISTORICAL";
     event: DigitalTicket["event"];
   };
-  tickets: Array<Pick<DigitalTicket, "registrationId" | "attendeeName" | "isTeamLeader" | "registrationStatus" | "qrToken">>;
+  tickets: Array<Pick<DigitalTicket, "registrationId" | "attendeeName" | "isTeamLeader" | "registrationStatus" | "qrToken"> & {
+    access?: TicketAccess;
+  }>;
   unavailableCount: number;
 }
 

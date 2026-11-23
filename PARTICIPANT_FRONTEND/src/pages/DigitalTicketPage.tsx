@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Link, useParams } from "react-router-dom";
-import { getIndividualTicket, type DigitalTicket } from "../api/registrationService";
+import { getIndividualTicket, resolveEntitledEventMetadata, type DigitalTicket } from "../api/registrationService";
 import TicketCard from "../components/tickets/TicketCard";
 
 export default function DigitalTicketPage() {
@@ -17,7 +17,26 @@ export default function DigitalTicketPage() {
     setError(null);
     if (!registrationId) { setError("This ticket link is invalid."); setLoading(false); return () => controller.abort(); }
     getIndividualTicket(registrationId, controller.signal)
-      .then(setTicket)
+      .then(async (fetchedTicket) => {
+        if (controller.signal.aborted) return;
+        if (fetchedTicket.access?.type === "MULTI_EVENT" && Array.isArray(fetchedTicket.access.eligibleEventIds) && fetchedTicket.access.eligibleEventIds.length > 0) {
+          try {
+            const metaMap = await resolveEntitledEventMetadata(fetchedTicket.access.eligibleEventIds, controller.signal);
+            if (!controller.signal.aborted) {
+              const entitledEvents = fetchedTicket.access.eligibleEventIds.map((id) => metaMap.get(id) || { _id: id });
+              setTicket({ ...fetchedTicket, entitledEvents });
+              return;
+            }
+          } catch {
+            if (!controller.signal.aborted) {
+              const entitledEvents = fetchedTicket.access.eligibleEventIds.map((id) => ({ _id: id }));
+              setTicket({ ...fetchedTicket, entitledEvents });
+              return;
+            }
+          }
+        }
+        setTicket(fetchedTicket);
+      })
       .catch((requestError: unknown) => { if (!axios.isCancel(requestError)) setError(ticketError(requestError)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();

@@ -204,6 +204,11 @@ export default function TeamRegistrationPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const isCombo = Boolean(event?.multiEventAccess?.enabled);
+  const includedIds = event?.multiEventAccess?.includedEvents || [];
+  const includedDetails = event?.includedEventDetails || [];
+  const totalIncluded = includedIds.length;
+
   const confirmTeam = async () => {
     if (!eventId || !event || submitLock.current || submitting) return;
     const result = validate();
@@ -271,8 +276,45 @@ export default function TeamRegistrationPage() {
 
       <div className="registration-form-actions"><Link to={`/events/${event._id}`} className="registration-text-link">Cancel</Link><button type="submit" className="participant-button">Review team registration <span aria-hidden="true">→</span></button></div>
     </form> : <section className="registration-review-card"><p className="participant-eyebrow">FINAL REVIEW</p><h2>Confirm team registration</h2><p className="registration-review-intro">Confirm the team name, leader, and each member before submitting.</p>{submitError && <div className="registration-submit-error" role="alert"><p>{submitError}</p>{submitError.includes("session has expired") && <Link to="/login">Sign in again</Link>}</div>}
-      <div className="registration-review-event"><span>Event</span><strong>{event.name}</strong></div>
-      <div className="registration-review-grid"><ReviewItem label="Team name" value={teamName} /><ReviewItem label="Registration type" value="Team" /><ReviewItem label="Team size" value={`${members.length} members`} /><ReviewItem label="Configured fee per registration" value={registration.registrationFee === 0 ? "Free" : formatFee(registration.registrationFee)} />{registration.registrationFee > 0 && <ReviewItem label="Shared payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
+      <div className="registration-review-event">
+        <div>
+          <span>{isCombo ? "Combo Event" : "Event"}</span>
+          <strong>{event.name}</strong>
+        </div>
+        {isCombo && (
+          <span className="registration-combo-pill">
+            Combo Pass · {totalIncluded} {totalIncluded === 1 ? "Event" : "Events"}
+          </span>
+        )}
+      </div>
+      {isCombo && (
+        <div className="registration-combo-review-block" aria-label="Team combo pass included events">
+          <div className="registration-combo-review-header">
+            <h3>Events Included in This Team Pass</h3>
+            <span>{totalIncluded} {totalIncluded === 1 ? "Event" : "Events"} covered</span>
+          </div>
+          {includedDetails.length > 0 ? (
+            <ul className="registration-combo-review-list">
+              {includedDetails.map((child) => (
+                <li key={child._id}>
+                  <strong>{child.name}</strong>
+                  {child.venue && <small>· {child.venue}</small>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="registration-combo-review-empty">
+              {totalIncluded > 0
+                ? `Covers ${totalIncluded} included events. Detailed event schedules will be accessible on your digital tickets.`
+                : "No child events are currently configured for this combo pass."}
+            </p>
+          )}
+          <p className="registration-combo-review-note">
+            Each registered team member will receive their own unique QR ticket, valid for the included events after the team's payment is verified.
+          </p>
+        </div>
+      )}
+      <div className="registration-review-grid"><ReviewItem label="Team name" value={teamName} /><ReviewItem label="Registration type" value={isCombo ? "Team (Combo Pass)" : "Team"} /><ReviewItem label="Team size" value={`${members.length} members`} /><ReviewItem label="Configured fee per registration" value={registration.registrationFee === 0 ? "Free" : formatFee(registration.registrationFee)} />{registration.registrationFee > 0 && <ReviewItem label="Shared payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
       {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Shared payment screenshot</h3><p>{paymentProof.name}</p><PaymentProofPreview file={paymentProof} /></div>}
       <div className="team-review-members"><h3>Team roster</h3>{members.map((member, index) => <article key={`review-${index}`}><span className="team-review-index">{index === 0 ? "L" : index + 1}</span><div><strong>{member.participantDetails.fullName || `Member ${index + 1}`}{index === 0 && <em>Leader</em>}</strong><p>{member.participantDetails.collegeName} · {member.participantDetails.department} · {member.participantDetails.rollNumber}</p></div></article>)}</div>
       {fields.length > 0 && <p className="registration-prefill-note">Event-specific responses for each member will be saved with their individual team registration record.</p>}
@@ -306,7 +348,10 @@ function TeamAlreadyRegistered({ event, state }: { event: EventDetails; state: E
   return <section className="registration-availability-error"><span className="discover-state-mark">{active ? "✓" : "!"}</span><p className="participant-eyebrow">TEAM REGISTRATION STATUS</p><h1>{label}</h1><p>{message}</p><div><Link className="participant-button" to={existingRegistrationPath(state)}>{state.kind === "TEAM" && state.registration.isTeamLeader ? "View Team Details" : "View Registration"}</Link><Link className="registration-secondary-button" to={`/events/${event._id}`}>Back to Event</Link></div></section>;
 }
 
-function TeamRegistrationSuccess({ event, receipt, leaderName }: { event: EventDetails; receipt: CreatedTeamReceipt; leaderName: string }) { return <section className="registration-success-card"><span className="registration-success-mark" aria-hidden="true">✓</span><p className="participant-eyebrow">VIBRANT2K26 · TEAM REGISTRATION</p><h1>Your team is registered.</h1><p className="registration-success-lede"><strong>{receipt.teamName}</strong> is registered for {event.name}.</p><div className="registration-success-details"><ReviewItem label="Team registration reference" value={receipt.id} /><ReviewItem label="Team leader" value={leaderName} /><ReviewItem label="Member count" value={`${receipt.memberCount} members`} /><ReviewItem label="Registration status" value={formatStatus(receipt.status)} /><ReviewItem label="Shared payment status" value={formatStatus(receipt.paymentStatus)} /></div>{receipt.paymentStatus === "PENDING" && <p className="registration-payment-reminder">Shared payment status: Pending. Submitted information awaits administrator verification.</p>}<div className="registration-form-actions"><Link className="registration-secondary-button" to={`/events/${event._id}`}>Back to Event</Link><Link className="participant-button" to={`/teams/${receipt.id}`}>View Team Details</Link></div></section>; }
+function TeamRegistrationSuccess({ event, receipt, leaderName }: { event: EventDetails; receipt: CreatedTeamReceipt; leaderName: string }) {
+  const isCombo = Boolean(event.multiEventAccess?.enabled);
+  return <section className="registration-success-card"><span className="registration-success-mark" aria-hidden="true">✓</span><p className="participant-eyebrow">VIBRANT2K26 · TEAM REGISTRATION</p><h1>Your team is registered.</h1><p className="registration-success-lede"><strong>{receipt.teamName}</strong> is registered for {event.name}.</p><div className="registration-success-details"><ReviewItem label="Team registration reference" value={receipt.id} /><ReviewItem label="Team leader" value={leaderName} /><ReviewItem label="Member count" value={`${receipt.memberCount} members`} /><ReviewItem label="Registration status" value={formatStatus(receipt.status)} /><ReviewItem label="Shared payment status" value={formatStatus(receipt.paymentStatus)} /></div>{receipt.paymentStatus === "PENDING" && <p className="registration-payment-reminder">Shared payment status: Pending. Submitted information awaits administrator verification.</p>}{isCombo && <p className="registration-combo-success-note">Every registered member will receive their own independent digital QR ticket for the included events once the shared payment is verified.</p>}<div className="registration-form-actions"><Link className="registration-secondary-button" to={`/events/${event._id}`}>Back to Event</Link><Link className="participant-button" to={`/teams/${receipt.id}`}>View Team Details</Link></div></section>;
+}
 
 function ReviewItem({ label, value }: { label: string; value: string }) { return <div><span>{label}</span><strong>{value || "—"}</strong></div>; }
 function getTeamEligibility(event: EventDetails) {

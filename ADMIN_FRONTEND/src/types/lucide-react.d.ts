@@ -54,4 +54,8 @@ declare module "lucide-react" {
   export const LockKeyhole: (props: IconProps) => JSX.Element;
   export const ShieldAlert: (props: IconProps) => JSX.Element;
   export const ShieldCheck: (props: IconProps) => JSX.Element;
+  export const Info: LucideIcon;
+  export const Layers: LucideIcon;
+  export const Lock: LucideIcon;
+  export const ExternalLink: LucideIcon;
 }

@@ -6,6 +6,7 @@ import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import PageHeader from "../../components/admin/PageHeader";
 import EventStatusBadge from "../../components/events/EventStatusBadge";
+import "../../components/events/multiEventAccess.css";
 
 const categories: EventCategory[] = ["TECHNICAL", "CULTURAL", "SPORTS", "WORKSHOP", "COMPETITION"];
 const statuses: EventStatus[] = ["PUBLISHED", "CANCELLED", "COMPLETED"];
@@ -65,7 +66,7 @@ export default function EventsPage() {
           <div className="event-table-wrap"><table className="event-table"><thead><tr><th>Event</th><th>Event date</th><th>Venue</th><th>Registration</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
             {result?.events.map(event => <tr key={event._id}>
               <td><div className="event-list-identity">{event.poster && !imageFailures.includes(event._id) ? <img className="event-list-poster" src={event.poster} alt="" loading="lazy" onError={() => setImageFailures(current => [...current, event._id])} /> : <span className="event-list-poster event-poster-fallback"><CalendarDays size={17} /></span>}<div className="event-list-name"><Link to={`/admin/events/${event._id}`}>{event.name}</Link><small>{titleCase(event.category)}</small></div></div></td>
-              <td>{formatDate(event.startDate)}</td><td className="event-table-venue">{event.venue}</td><td><span className="registration-mode-label">{titleCase(event.registration.mode)}</span><small className="registered-count">{event.registration.registeredParticipants} / {event.registration.capacity} registered</small></td><td><EventStatusBadge status={event.status} /></td>
+              <td>{formatDate(event.startDate)}</td><td className="event-table-venue">{event.venue}</td><td><span className="registration-mode-label">{titleCase(event.registration.mode)}</span>{event.multiEventAccess?.enabled && <span className="combo-pass-badge">Combo Pass</span>}<small className="registered-count">{event.registration.registeredParticipants} / {event.registration.capacity} registered</small></td><td><EventStatusBadge status={event.status} /></td>
               <td><details className="event-action-menu"><summary aria-label={`Actions for ${event.name}`}><MoreHorizontal size={18} /></summary><div className="event-action-popover"><Link to={`/admin/events/${event._id}`}><Eye size={14} /> View details</Link><Link to={`/admin/events/${event._id}/edit`}><Pencil size={14} /> Edit event</Link>{event.status === "PUBLISHED" && <button onClick={() => navigate(`/admin/events/${event._id}`, { state: { requestAction: "cancel" } })}>Cancel event</button>}{event.status === "PUBLISHED" && <button onClick={() => navigate(`/admin/events/${event._id}`, { state: { requestAction: "complete" } })}>Mark completed</button>}{event.status !== "PUBLISHED" && (event.registration.registeredParticipants ?? 0) === 0 && <button className="event-delete-action" onClick={() => navigate(`/admin/events/${event._id}`, { state: { requestAction: "delete" } })}><Trash2 size={14} /> Delete event</button>}</div></details></td>
             </tr>)}
           </tbody></table></div>

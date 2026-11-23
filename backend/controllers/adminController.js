@@ -7,6 +7,12 @@ const Team = require("../models/Team");
 const financialAnalyticsService = require("../services/financialAnalyticsService");
 const { getCertificateEligibility } = require("../utils/certificateEligibility");
 const { attachEventParticipantCounts } = require("../utils/eventParticipantCounts");
+const { executeWithGraphCoordination } = require("../utils/eventGraphCoordinator");
+const {
+    buildEventCohortFilter,
+    buildAttendanceMatchCondition,
+    resolveEventSpecificAttendance
+} = require("../utils/eventAttendanceReportService");
 
 const validatePaymentQueueQuery = (query) => {
     const page = Number(query.page ?? 1);
@@ -174,18 +180,37 @@ const getAdminEventAttendance = async (req, res) => {
         const event = await Event.findById(id).select("name startDate endDate status").lean();
         if (!event) return res.status(404).json({ success: false, message: "Event not found" });
 
-        const registeredFilter = { event: event._id, status: "REGISTERED" };
+        const targetObjectId = new mongoose.Types.ObjectId(id);
+        const registeredFilter = buildEventCohortFilter(targetObjectId, "REGISTERED");
         const filter = { ...registeredFilter };
-        if (attendance === "PRESENT") filter["attendance.isPresent"] = true;
-        if (attendance === "ABSENT") filter["attendance.isPresent"] = { $ne: true };
+
+        const attendanceMatch = buildAttendanceMatchCondition(targetObjectId, attendance);
+        if (attendanceMatch) {
+            filter.$and = [...(filter.$and || []), attendanceMatch];
+        }
+
         if (search.trim()) {
             const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             const pattern = { $regex: escaped, $options: "i" };
             const users = await User.find({ $or: [{ name: pattern }, { email: pattern }] }).distinct("_id");
             const searchClauses = [{ "participantDetails.fullName": pattern }];
             if (users.length) searchClauses.push({ user: { $in: users } });
-            filter.$or = searchClauses;
+            filter.$and = [...(filter.$and || []), { $or: searchClauses }];
         }
+
+        const isPresentCondition = {
+            $or: [
+                { $in: [targetObjectId, { $ifNull: ["$eventAttendance.eventId", []] }] },
+                {
+                    $and: [
+                        { $eq: ["$event", targetObjectId] },
+                        { $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }
+                    ]
+                }
+            ]
+        };
+
+        const isDirectCondition = { $eq: ["$event", targetObjectId] };
 
         const [summaryRows, registrations, total] = await Promise.all([
             Registration.aggregate([
@@ -193,17 +218,22 @@ const getAdminEventAttendance = async (req, res) => {
                 { $group: {
                     _id: null,
                     total: { $sum: 1 },
-                    present: { $sum: { $cond: [{ $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }, 1, 0] } },
+                    present: { $sum: { $cond: [isPresentCondition, 1, 0] } },
                     individualTotal: { $sum: { $cond: [{ $eq: [{ $ifNull: ["$team", null] }, null] }, 1, 0] } },
-                    individualPresent: { $sum: { $cond: [{ $and: [{ $eq: [{ $ifNull: ["$team", null] }, null] }, { $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }] }, 1, 0] } },
-                    teamPresent: { $sum: { $cond: [{ $and: [{ $ne: [{ $ifNull: ["$team", null] }, null] }, { $eq: [{ $ifNull: ["$attendance.isPresent", false] }, true] }] }, 1, 0] } }
+                    individualPresent: { $sum: { $cond: [{ $and: [{ $eq: [{ $ifNull: ["$team", null] }, null] }, isPresentCondition] }, 1, 0] } },
+                    teamPresent: { $sum: { $cond: [{ $and: [{ $ne: [{ $ifNull: ["$team", null] }, null] }, isPresentCondition] }, 1, 0] } },
+                    directTotal: { $sum: { $cond: [isDirectCondition, 1, 0] } },
+                    directPresent: { $sum: { $cond: [{ $and: [isDirectCondition, isPresentCondition] }, 1, 0] } },
+                    comboTotal: { $sum: { $cond: [{ $not: [isDirectCondition] }, 1, 0] } },
+                    comboPresent: { $sum: { $cond: [{ $and: [{ $not: [isDirectCondition] }, isPresentCondition] }, 1, 0] } }
                 } },
                 { $project: { _id: 0 } }
             ]),
             Registration.find(filter)
-                .select("participantDetails.fullName isTeamLeader user team attendance")
+                .select("participantDetails.fullName isTeamLeader user team attendance eventAttendance access event")
                 .populate("user", "name email -_id")
                 .populate("team", "teamName -_id")
+                .populate("event", "name -_id")
                 .sort({ createdAt: -1, _id: -1 })
                 .skip((page - 1) * limit)
                 .limit(limit)
@@ -218,6 +248,11 @@ const getAdminEventAttendance = async (req, res) => {
         const individualPresent = Number(summary.individualPresent) || 0;
         const teamTotal = Math.max(0, totalParticipants - individualTotal);
         const teamPresent = Number(summary.teamPresent) || 0;
+        const directTotal = Number(summary.directTotal) || 0;
+        const directPresent = Number(summary.directPresent) || 0;
+        const comboTotal = Number(summary.comboTotal) || 0;
+        const comboPresent = Number(summary.comboPresent) || 0;
+
         return res.status(200).json({
             success: true,
             event,
@@ -227,19 +262,26 @@ const getAdminEventAttendance = async (req, res) => {
                 absent: Math.max(0, totalParticipants - present),
                 attendancePercentage: totalParticipants ? Number(((present / totalParticipants) * 100).toFixed(2)) : 0,
                 individual: { total: individualTotal, present: individualPresent, absent: Math.max(0, individualTotal - individualPresent) },
-                team: { total: teamTotal, present: teamPresent, absent: Math.max(0, teamTotal - teamPresent) }
+                team: { total: teamTotal, present: teamPresent, absent: Math.max(0, teamTotal - teamPresent) },
+                direct: { total: directTotal, present: directPresent, absent: Math.max(0, directTotal - directPresent) },
+                combo: { total: comboTotal, present: comboPresent, absent: Math.max(0, comboTotal - comboPresent) }
             },
             pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
-            participants: registrations.map(registration => ({
-                registrationId: registration._id,
-                name: registration.participantDetails?.fullName || registration.user?.name || "Participant",
-                email: registration.user?.email || null,
-                teamName: registration.team?.teamName || null,
-                isTeamLeader: Boolean(registration.isTeamLeader),
-                registrationType: registration.team ? "TEAM" : "INDIVIDUAL",
-                attendance: registration.attendance?.isPresent ? "PRESENT" : "ABSENT",
-                checkedInAt: registration.attendance?.checkedInAt || null
-            }))
+            participants: registrations.map(registration => {
+                const att = resolveEventSpecificAttendance(registration, targetObjectId);
+                return {
+                    registrationId: registration._id,
+                    name: registration.participantDetails?.fullName || registration.user?.name || "Participant",
+                    email: registration.user?.email || null,
+                    teamName: registration.team?.teamName || null,
+                    isTeamLeader: Boolean(registration.isTeamLeader),
+                    registrationType: registration.team ? "TEAM" : "INDIVIDUAL",
+                    attendance: att.isPresent ? "PRESENT" : "ABSENT",
+                    checkedInAt: att.checkedInAt || null,
+                    cohortType: att.cohortType,
+                    parentEventName: att.cohortType === "COMBO" ? (registration.event?.name || null) : null
+                };
+            })
         });
     } catch (error) {
         console.error("Get admin event attendance error:", error);
@@ -435,15 +477,25 @@ const getAllAdminEvents = async (req, res) => {
                 .sort({ [sortBy]: direction, _id: direction })
                 .skip(skip)
                 .limit(limitNumber)
-                .select("name description category poster venue startDate endDate registration registrationFields status createdAt updatedAt")
+                .select("name description category poster venue startDate endDate registration registrationFields multiEventAccess status createdAt updatedAt")
                 .lean(),
             Event.countDocuments(filter)
         ]);
         const eventsWithParticipantCounts = await attachEventParticipantCounts(events);
+        const normalizedEvents = eventsWithParticipantCounts.map(ev => ({
+            ...ev,
+            multiEventAccess: ev.multiEventAccess ? {
+                enabled: Boolean(ev.multiEventAccess.enabled),
+                includedEvents: (ev.multiEventAccess.includedEvents || []).map(id => id._id ? id._id.toString() : id.toString())
+            } : {
+                enabled: false,
+                includedEvents: []
+            }
+        }));
 
         return res.status(200).json({
             success: true,
-            events: eventsWithParticipantCounts,
+            events: normalizedEvents,
             pagination: {
                 totalEvents,
                 currentPage: pageNumber,
@@ -466,32 +518,68 @@ const deleteAdminEvent = async (req, res) => {
             return res.status(400).json({ success: false, message: "Invalid event ID" });
         }
 
-        const event = await Event.findById(id).select("status registration.registeredParticipants");
-        if (!event) {
-            return res.status(404).json({ success: false, message: "Event not found" });
-        }
-        if (event.status === "PUBLISHED") {
-            return res.status(409).json({
-                success: false,
-                message: "Cancel or complete this event before deleting it."
-            });
-        }
+        await executeWithGraphCoordination(async (session) => {
+            const evtQuery = Event.findById(id).select("status registration.registeredParticipants");
+            if (session && typeof evtQuery.session === "function") evtQuery.session(session);
+            const event = await evtQuery;
 
-        const [registrationCount, teamCount] = await Promise.all([
-            Registration.countDocuments({ event: event._id }),
-            Team.countDocuments({ event: event._id })
-        ]);
-        if (registrationCount > 0 || teamCount > 0 || (event.registration?.registeredParticipants ?? 0) > 0) {
-            return res.status(409).json({
-                success: false,
-                message: "This event has registration or team history and cannot be deleted. Keep it cancelled or completed to preserve those records."
-            });
-        }
+            if (!event) {
+                const err = new Error("Event not found");
+                err.statusCode = 404;
+                throw err;
+            }
+            if (event.status === "PUBLISHED") {
+                const err = new Error("Cancel or complete this event before deleting it.");
+                err.statusCode = 409;
+                throw err;
+            }
 
-        await Event.deleteOne({ _id: event._id });
+            // Child deletion protection: prevent deletion if referenced by an active combo parent
+            const comboQuery = Event.findOne({
+                "multiEventAccess.enabled": true,
+                "multiEventAccess.includedEvents": event._id
+            }).select("name");
+            if (session && typeof comboQuery.session === "function") comboQuery.session(session);
+            const referencingCombo = await comboQuery;
+
+            if (referencingCombo) {
+                const err = new Error(`This event is included in the active combo event "${referencingCombo.name}" and cannot be deleted.`);
+                err.statusCode = 409;
+                err.code = "REFERENCED_BY_PARENT_COMBO";
+                throw err;
+            }
+
+            const regCountQuery = Registration.countDocuments({ event: event._id });
+            const teamCountQuery = Team.countDocuments({ event: event._id });
+            if (session && typeof regCountQuery.session === "function") {
+                regCountQuery.session(session);
+            }
+            if (session && typeof teamCountQuery.session === "function") {
+                teamCountQuery.session(session);
+            }
+            const [registrationCount, teamCount] = await Promise.all([regCountQuery, teamCountQuery]);
+
+            if (registrationCount > 0 || teamCount > 0 || (event.registration?.registeredParticipants ?? 0) > 0) {
+                const err = new Error("This event has registration or team history and cannot be deleted. Keep it cancelled or completed to preserve those records.");
+                err.statusCode = 409;
+                throw err;
+            }
+
+            const delQuery = Event.deleteOne({ _id: event._id });
+            if (session && typeof delQuery.session === "function") delQuery.session(session);
+            await delQuery;
+        });
+
         return res.status(200).json({ success: true, message: "Event deleted successfully" });
     } catch (error) {
         console.error("Delete admin event error:", error);
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({
+                success: false,
+                code: error.code,
+                message: error.message
+            });
+        }
         return res.status(500).json({ success: false, message: "Failed to delete event" });
     }
 };
@@ -849,6 +937,105 @@ const updateUserRole = async (req, res) => {
     }
 };
 
+const getEligibleMultiAccessEvents = async (req, res) => {
+    try {
+        const { parentId, parentMode } = req.query;
+
+        if (parentId !== undefined && parentId !== null && String(parentId).trim() !== "") {
+            if (!mongoose.Types.ObjectId.isValid(String(parentId).trim())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid parent event ID"
+                });
+            }
+        }
+
+        const events = await Event.find({})
+            .select("name category venue startDate endDate status registration multiEventAccess")
+            .sort({ name: 1 })
+            .lean();
+
+        const parentIdStr = parentId ? String(parentId).trim() : null;
+        const normalizedParentMode = parentMode ? String(parentMode).toUpperCase() : null;
+
+        // Check if parent itself is an included child of another combo parent
+        let parentIsChildOfAnotherCombo = null;
+        if (parentIdStr && mongoose.Types.ObjectId.isValid(parentIdStr)) {
+            const parentObjId = new mongoose.Types.ObjectId(parentIdStr);
+            parentIsChildOfAnotherCombo = await Event.findOne({
+                _id: { $ne: parentObjId },
+                "multiEventAccess.enabled": true,
+                "multiEventAccess.includedEvents": parentObjId
+            }).select("name").lean();
+        }
+
+        const currentParent = parentIdStr ? events.find(e => e._id.toString() === parentIdStr) : null;
+        const alreadyIncludedIds = new Set(
+            (currentParent?.multiEventAccess?.includedEvents || []).map(id => id._id ? id._id.toString() : id.toString())
+        );
+
+        const evaluatedEvents = events.map(ev => {
+            const evIdStr = ev._id.toString();
+            let isEligible = true;
+            let ineligibilityReason = null;
+            const isAlreadyIncluded = alreadyIncludedIds.has(evIdStr);
+
+            if (parentIsChildOfAnotherCombo) {
+                isEligible = false;
+                ineligibilityReason = `Parent event is already an included child of combo "${parentIsChildOfAnotherCombo.name}" and cannot become a multi-event parent`;
+            } else if (parentIdStr && evIdStr === parentIdStr) {
+                isEligible = false;
+                ineligibilityReason = "An event cannot include itself in multi-event access";
+            } else if (ev.status === "CANCELLED" || ev.status === "COMPLETED") {
+                isEligible = false;
+                ineligibilityReason = `Event is ${ev.status.toLowerCase()}`;
+            } else if (ev.multiEventAccess?.enabled === true) {
+                isEligible = false;
+                ineligibilityReason = "Event is already a multi-event combo parent (nested combos are prohibited)";
+            } else if (normalizedParentMode && ev.registration?.mode && ev.registration.mode !== normalizedParentMode) {
+                isEligible = false;
+                ineligibilityReason = `Registration mode mismatch: event is ${ev.registration.mode}, parent is ${normalizedParentMode}`;
+            }
+
+            return {
+                _id: ev._id,
+                name: ev.name,
+                category: ev.category,
+                venue: ev.venue,
+                startDate: ev.startDate,
+                endDate: ev.endDate,
+                status: ev.status,
+                registrationMode: ev.registration?.mode || "INDIVIDUAL",
+                capacity: ev.registration?.capacity || 0,
+                registrationFee: ev.registration?.registrationFee || 0,
+                allowDirectRegistration: ev.registration?.allowDirectRegistration ?? true,
+                isEligible,
+                ineligibilityReason,
+                isAlreadyIncluded
+            };
+        });
+
+        const eligibleCount = evaluatedEvents.filter(e => e.isEligible).length;
+
+        return res.status(200).json({
+            success: true,
+            total: evaluatedEvents.length,
+            eligibleCount,
+            isParentEligibleAsCombo: !parentIsChildOfAnotherCombo,
+            parentIneligibilityReason: parentIsChildOfAnotherCombo
+                ? `Parent event is already an included child of combo "${parentIsChildOfAnotherCombo.name}" and cannot become a multi-event parent`
+                : null,
+            events: evaluatedEvents
+        });
+    } catch (error) {
+        console.error("Get eligible multi-access events error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to fetch eligible events"
+        });
+    }
+};
+
 module.exports = {
     getAllAdminEvents,
     deleteAdminEvent,
@@ -861,5 +1048,6 @@ module.exports = {
     getAdminUsers,
     getAdminEventAttendance,
     getEventCertificates,
-    updateUserRole
+    updateUserRole,
+    getEligibleMultiAccessEvents
 };

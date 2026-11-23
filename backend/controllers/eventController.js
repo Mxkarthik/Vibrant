@@ -1,10 +1,14 @@
 
 const Event = require("../models/Event");
+const Registration = require("../models/Registration");
+const Team = require("../models/Team");
 const mongoose = require("mongoose");
 const crypto = require("node:crypto");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
 const isValidImageFile = require("../utils/validateImageBuffer");
 const { attachEventParticipantCounts } = require("../utils/eventParticipantCounts");
+const { validateMultiEventAccess } = require("../utils/validateMultiEventAccess");
+const { executeWithGraphCoordination } = require("../utils/eventGraphCoordinator");
 
 const uploadEventPoster = async (req, res) => {
     try {
@@ -78,7 +82,8 @@ const createEvent = async (req, res) => {
             startDate,
             endDate,
             registration,
-            registrationFields = []
+            registrationFields = [],
+            multiEventAccess
         } = req.body;
 
         // 3. Validate registration configuration
@@ -227,44 +232,90 @@ const createEvent = async (req, res) => {
             });
         }
 
-        // 5. Create event
-        const event = await Event.create({
-            name,
-            description,
-            category,
-            poster,
-            paymentQrUrl,
-            venue,
-            startDate,
-            endDate,
+        // 4b. Validate Multi-Event Access configuration if provided
+        let normalizedMultiEvent = { enabled: false, includedEvents: [] };
+        if (multiEventAccess !== undefined) {
+            const validation = await validateMultiEventAccess(multiEventAccess, {
+                parentMode: registration.mode
+            });
+            if (!validation.isValid) {
+                return res.status(400).json({
+                    success: false,
+                    message: validation.error
+                });
+            }
+            normalizedMultiEvent = validation.value;
+        }
 
-            registration: {
-                mode: registration.mode,
-                deadline: registration.deadline,
-                capacity: registration.capacity,
+        // 5. Create event (use graph coordination transaction if creating a combo)
+        let event;
+        if (normalizedMultiEvent.enabled) {
+            event = await executeWithGraphCoordination(async (session) => {
+                const validation = await validateMultiEventAccess(multiEventAccess, {
+                    parentMode: registration.mode,
+                    session
+                });
+                if (!validation.isValid) {
+                    const err = new Error(validation.error);
+                    err.statusCode = 400;
+                    throw err;
+                }
 
-                registrationFee:
-                    registration.registrationFee ?? 0,
+                const eventData = {
+                    name,
+                    description,
+                    category,
+                    poster,
+                    paymentQrUrl,
+                    venue,
+                    startDate,
+                    endDate,
+                    registration: {
+                        mode: registration.mode,
+                        deadline: registration.deadline,
+                        capacity: registration.capacity,
+                        registrationFee: registration.registrationFee ?? 0,
+                        minTeamSize: registration.mode === "TEAM" ? registration.minTeamSize : 1,
+                        maxTeamSize: registration.mode === "TEAM" ? registration.maxTeamSize : 1,
+                        allowDirectRegistration: registration.allowDirectRegistration ?? true,
+                        registeredParticipants: 0
+                    },
+                    registrationFields: validatedFields,
+                    multiEventAccess: validation.value,
+                    createdBy: req.user._id,
+                    status: "PUBLISHED"
+                };
 
-                minTeamSize:
-                    registration.mode === "TEAM"
-                        ? registration.minTeamSize
-                        : 1,
-
-                maxTeamSize:
-                    registration.mode === "TEAM"
-                        ? registration.maxTeamSize
-                        : 1,
-
-                registeredParticipants: 0
-            },
-
-            registrationFields: validatedFields,
-
-            // Controlled by backend
-            createdBy: req.user._id,
-            status: "PUBLISHED"
-        });
+                const createdEvents = await Event.create([eventData], session ? { session } : {});
+                const created = Array.isArray(createdEvents) ? createdEvents[0] : createdEvents;
+                return created;
+            });
+        } else {
+            event = await Event.create({
+                name,
+                description,
+                category,
+                poster,
+                paymentQrUrl,
+                venue,
+                startDate,
+                endDate,
+                registration: {
+                    mode: registration.mode,
+                    deadline: registration.deadline,
+                    capacity: registration.capacity,
+                    registrationFee: registration.registrationFee ?? 0,
+                    minTeamSize: registration.mode === "TEAM" ? registration.minTeamSize : 1,
+                    maxTeamSize: registration.mode === "TEAM" ? registration.maxTeamSize : 1,
+                    allowDirectRegistration: registration.allowDirectRegistration ?? true,
+                    registeredParticipants: 0
+                },
+                registrationFields: validatedFields,
+                multiEventAccess: normalizedMultiEvent,
+                createdBy: req.user._id,
+                status: "PUBLISHED"
+            });
+        }
 
         // 6. Success response
         return res.status(201).json({
@@ -276,6 +327,14 @@ const createEvent = async (req, res) => {
     } catch (error) {
 
         console.error("Create event error:", error);
+
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({
+                success: false,
+                code: error.code,
+                message: error.message
+            });
+        }
 
         if (error.name === "ValidationError") {
             return res.status(400).json({
@@ -376,9 +435,35 @@ const getEventById = async (req, res) => {
 
         const [eventWithParticipantCount] = await attachEventParticipantCounts([event]);
 
+        let includedEventDetails = [];
+        if (
+            eventWithParticipantCount?.multiEventAccess?.enabled &&
+            Array.isArray(eventWithParticipantCount.multiEventAccess.includedEvents) &&
+            eventWithParticipantCount.multiEventAccess.includedEvents.length > 0
+        ) {
+            includedEventDetails = await Event.find({
+                _id: { $in: eventWithParticipantCount.multiEventAccess.includedEvents }
+            })
+                .select("name category venue startDate endDate status registration.mode registration.capacity")
+                .lean();
+        }
+
+        const canonicalIncludedEvents = (eventWithParticipantCount?.multiEventAccess?.includedEvents || []).map(id =>
+            id?._id ? id._id.toString() : id.toString()
+        );
+
+        const responseEvent = {
+            ...eventWithParticipantCount,
+            multiEventAccess: {
+                enabled: Boolean(eventWithParticipantCount?.multiEventAccess?.enabled),
+                includedEvents: canonicalIncludedEvents
+            },
+            includedEventDetails
+        };
+
         return res.status(200).json({
             success: true,
-            event: eventWithParticipantCount
+            event: responseEvent
         });
 
     } catch (error) {
@@ -392,6 +477,70 @@ const getEventById = async (req, res) => {
 };
 
 
+/**
+ * Normalizes multiEventAccess configuration to canonical form for comparison:
+ * - If disabled, null, or undefined: canonical form is { enabled: false, includedEvents: [] }
+ * - If enabled: canonical form is { enabled: true, includedEvents: sorted unique lowercase hex string IDs }
+ */
+const normalizeMultiEventConfig = (config) => {
+    if (!config || typeof config !== "object") {
+        return { enabled: false, includedEvents: [] };
+    }
+
+    const enabled = Boolean(config.enabled);
+    if (!enabled) {
+        return { enabled: false, includedEvents: [] };
+    }
+
+    const rawList = Array.isArray(config.includedEvents) ? config.includedEvents : [];
+    const uniqueIds = new Set();
+
+    for (const item of rawList) {
+        if (!item) continue;
+        let idStr;
+        if (typeof item === "object") {
+            if (item._id) {
+                idStr = item._id.toString();
+            } else if (item.id) {
+                idStr = item.id.toString();
+            } else {
+                idStr = item.toString();
+            }
+        } else {
+            idStr = String(item);
+        }
+
+        idStr = idStr.trim().toLowerCase();
+        if (idStr) {
+            uniqueIds.add(idStr);
+        }
+    }
+
+    return {
+        enabled: true,
+        includedEvents: Array.from(uniqueIds).sort()
+    };
+};
+
+const areMultiEventConfigsEqual = (configA, configB) => {
+    const a = normalizeMultiEventConfig(configA);
+    const b = normalizeMultiEventConfig(configB);
+
+    if (a.enabled !== b.enabled) {
+        return false;
+    }
+
+    if (!a.enabled && !b.enabled) {
+        return true;
+    }
+
+    if (a.includedEvents.length !== b.includedEvents.length) {
+        return false;
+    }
+
+    return a.includedEvents.every((id, idx) => id === b.includedEvents[idx]);
+};
+
 const updateEvent = async (req, res) => {
     try {
         const { id } = req.params;
@@ -404,7 +553,7 @@ const updateEvent = async (req, res) => {
             });
         }
 
-        const event = await Event.findById(id);
+        let event = await Event.findById(id);
 
         if (!event) {
             return res.status(404).json({
@@ -422,7 +571,8 @@ const updateEvent = async (req, res) => {
             venue,
             startDate,
             endDate,
-            registration
+            registration,
+            multiEventAccess
         } = req.body;
 
         // Update only permitted basic fields
@@ -456,7 +606,8 @@ const updateEvent = async (req, res) => {
             const allowedRegistrationFields = [
                 "deadline",
                 "capacity",
-                "registrationFee"
+                "registrationFee",
+                "allowDirectRegistration"
             ];
 
             for (const field of allowedRegistrationFields) {
@@ -477,8 +628,95 @@ const updateEvent = async (req, res) => {
             });
         }
 
-        // Save and run Mongoose document validation
-        await event.save();
+        // Validate and apply Multi-Event Access configuration if provided
+        if (multiEventAccess !== undefined) {
+            // Compare canonical sets and enabled flag
+            const isConfigChanged = !areMultiEventConfigsEqual(event.multiEventAccess, multiEventAccess);
+
+            if (isConfigChanged) {
+                // Real structural change: execute coordinated graph mutation inside transaction
+                await executeWithGraphCoordination(async (session) => {
+                    const evtQuery = Event.findById(id);
+                    if (session && typeof evtQuery.session === "function") evtQuery.session(session);
+                    const lockedEvent = await evtQuery;
+
+                    if (!lockedEvent) {
+                        const err = new Error("Event not found");
+                        err.statusCode = 404;
+                        throw err;
+                    }
+
+                    // Check again with freshly locked event document (concurrency protection)
+                    if (areMultiEventConfigsEqual(lockedEvent.multiEventAccess, multiEventAccess)) {
+                        // Concurrently resolved to same configuration: no-op for graph mutation
+                        return;
+                    }
+
+                    const regCountQuery = Registration.countDocuments({ event: lockedEvent._id });
+                    const teamCountQuery = Team.countDocuments({ event: lockedEvent._id });
+                    if (session && typeof regCountQuery.session === "function") {
+                        regCountQuery.session(session);
+                    }
+                    if (session && typeof teamCountQuery.session === "function") {
+                        teamCountQuery.session(session);
+                    }
+                    const [registrationCount, teamCount] = await Promise.all([regCountQuery, teamCountQuery]);
+
+                    if (registrationCount > 0 || teamCount > 0 || (lockedEvent.registration?.registeredParticipants ?? 0) > 0) {
+                        const err = new Error("Cannot modify multi-event access configuration for an event with existing registrations or teams");
+                        err.statusCode = 409;
+                        err.code = "CANNOT_MODIFY_REGISTERED_COMBO";
+                        throw err;
+                    }
+
+                    const validation = await validateMultiEventAccess(multiEventAccess, {
+                        parentId: lockedEvent._id,
+                        parentMode: lockedEvent.registration?.mode,
+                        session
+                    });
+
+                    if (!validation.isValid) {
+                        const err = new Error(validation.error);
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    if (name !== undefined) lockedEvent.name = name;
+                    if (description !== undefined) lockedEvent.description = description;
+                    if (category !== undefined) lockedEvent.category = category;
+                    if (poster !== undefined) lockedEvent.poster = poster;
+                    if (paymentQrUrl !== undefined) lockedEvent.paymentQrUrl = paymentQrUrl;
+                    if (venue !== undefined) lockedEvent.venue = venue;
+                    if (startDate !== undefined) lockedEvent.startDate = startDate;
+                    if (endDate !== undefined) lockedEvent.endDate = endDate;
+
+                    if (registration !== undefined) {
+                        for (const field of allowedRegistrationFields) {
+                            if (registration[field] !== undefined) {
+                                lockedEvent.registration[field] = registration[field];
+                            }
+                        }
+                    }
+
+                    if (lockedEvent.registration.capacity < lockedEvent.registration.registeredParticipants) {
+                        const err = new Error("Capacity cannot be lower than registered participants");
+                        err.statusCode = 400;
+                        throw err;
+                    }
+
+                    lockedEvent.multiEventAccess = validation.value;
+                    await lockedEvent.save(session ? { session } : undefined);
+                    event = lockedEvent;
+                });
+            } else {
+                // Configuration is unchanged: safe no-op for multi-event access.
+                // Save document with any updated basic/registration fields.
+                await event.save();
+            }
+        } else {
+            // Save and run Mongoose document validation for non-graph mutations
+            await event.save();
+        }
 
         return res.status(200).json({
             success: true,
@@ -488,6 +726,14 @@ const updateEvent = async (req, res) => {
 
     } catch (error) {
         console.error("Update event error:", error);
+
+        if (error.statusCode) {
+            return res.status(error.statusCode).json({
+                success: false,
+                code: error.code,
+                message: error.message
+            });
+        }
 
         if (error.name === "ValidationError") {
             return res.status(400).json({
@@ -518,7 +764,7 @@ const cancelEvent = async (req, res) => {
             });
         }
 
-        const event = await Event.findById(id);
+        let event = await Event.findById(id);
 
         if (!event) {
             return res.status(404).json({
@@ -725,7 +971,7 @@ const completeEvent = async (req, res) => {
             });
         }
 
-        const event = await Event.findById(id);
+        let event = await Event.findById(id);
 
         if (!event) {
             return res.status(404).json({
@@ -770,5 +1016,6 @@ const completeEvent = async (req, res) => {
 
 
 module.exports = {
-    createEvent, getAllEvents, getAllEventsWithFilters, getEventById, updateEvent, cancelEvent, completeEvent, uploadEventPoster, uploadEventPaymentQr
+    createEvent, getAllEvents, getAllEventsWithFilters, getEventById, updateEvent, cancelEvent, completeEvent, uploadEventPoster, uploadEventPaymentQr,
+    normalizeMultiEventConfig, areMultiEventConfigsEqual
 };

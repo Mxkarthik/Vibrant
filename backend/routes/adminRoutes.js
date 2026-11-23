@@ -16,7 +16,8 @@ const {
     getAdminUsers,
     getAdminEventAttendance,
     getEventCertificates,
-    updateUserRole
+    updateUserRole,
+    getEligibleMultiAccessEvents
 } = require("../controllers/adminController");
 const { issueIndividualCertificate } = require("../controllers/registrationController");
 
@@ -25,6 +26,7 @@ router.use(protect, authorizeRoles("ADMIN"));
 
 router.get("/dashboard", getDashboard);
 router.get("/events", getAllAdminEvents);
+router.get("/events/eligible-multi-access", getEligibleMultiAccessEvents);
 router.get("/events/:id/attendance", getAdminEventAttendance);
 router.get("/events/:id/certificates", getEventCertificates);
 router.post("/certificates/:registrationId/issue", issueIndividualCertificate);

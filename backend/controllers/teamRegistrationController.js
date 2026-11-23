@@ -6,6 +6,7 @@ const Registration = require("../models/Registration");
 const uploadToCloudinary = require("../utils/uploadToCloudinary");
 const deleteCloudinaryImage = require("../utils/deleteCloudinaryImage");
 const isValidImageFile = require("../utils/validateImageBuffer");
+const { buildRegistrationAccessSnapshot, resolveEffectiveAccess } = require("../utils/registrationEntitlement");
 const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const normalizeObjectId = value => {
     const id = value && typeof value === "object" && value._id ? value._id : value;
@@ -373,7 +374,70 @@ const registerTeam = async (req, res) => {
                 }
             }
 
-            // Reserve capacity by participant count, not team count
+            // If Multi-Event Access combo is enabled, validate included events lifecycle and compatibility
+            if (event.multiEventAccess && event.multiEventAccess.enabled === true) {
+                const included = event.multiEventAccess.includedEvents;
+                if (!Array.isArray(included) || included.length === 0) {
+                    const error = new Error("This combo event is not properly configured with included events");
+                    error.statusCode = 400;
+                    throw error;
+                }
+
+                // Check self-inclusion and duplicate entries
+                const parentIdStr = event._id.toString();
+                const seenChildIds = new Set();
+                for (const rawChildId of included) {
+                    const childIdStr = (rawChildId && rawChildId._id ? rawChildId._id : rawChildId).toString();
+                    if (childIdStr === parentIdStr) {
+                        const error = new Error("A combo event cannot include itself in multi-event access");
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (seenChildIds.has(childIdStr)) {
+                        const error = new Error(`Duplicate event ID found in includedEvents: "${childIdStr}"`);
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    seenChildIds.add(childIdStr);
+                }
+
+                const childQuery = Event.find({
+                    _id: { $in: included }
+                }).select("name status registration.mode multiEventAccess");
+                if (session && typeof childQuery.session === "function") {
+                    childQuery.session(session);
+                }
+                const childEvents = await childQuery.lean();
+
+                if (childEvents.length !== included.length) {
+                    const error = new Error("One or more included events do not exist");
+                    error.statusCode = 400;
+                    throw error;
+                }
+
+                for (const child of childEvents) {
+                    if (child.status !== "PUBLISHED") {
+                        const error = new Error(`Cannot register for combo: included event "${child.name || child._id}" is not published (status: ${child.status})`);
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (child.multiEventAccess?.enabled === true) {
+                        const error = new Error(`Cannot register for combo: included event "${child.name || child._id}" is already a multi-event parent (nested combos are prohibited)`);
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                    if (child.registration?.mode !== "TEAM") {
+                        const error = new Error(`Cannot register for combo: included event "${child.name || child._id}" requires ${child.registration?.mode || "INDIVIDUAL"} registration`);
+                        error.statusCode = 400;
+                        throw error;
+                    }
+                }
+            }
+
+            // Build base entitlement snapshot (SINGLE_EVENT for standard, MULTI_EVENT for combo)
+            const baseAccess = buildRegistrationAccessSnapshot({ event });
+
+            // Reserve capacity by participant count on parent event only
             const updatedEvent = await Event.findOneAndUpdate(
                 {
                     _id: event._id,
@@ -438,7 +502,7 @@ const registerTeam = async (req, res) => {
                 { session }
             );
 
-            // Create one Registration and QR token per participant
+            // Create one Registration and QR token per participant with independent access snapshots
             const registrationDocuments = members.map((member, index) => ({
                 event: event._id,
                 user: index === 0 ? leaderId : null,
@@ -459,6 +523,13 @@ const registerTeam = async (req, res) => {
                     expectedAmount: null,
                     receivedAmount: null,
                     currency: "INR"
+                },
+
+                // Each member receives an independent snapshot object
+                access: {
+                    type: baseAccess.type,
+                    eligibleEventIds: [...baseAccess.eligibleEventIds],
+                    grantedAt: new Date(baseAccess.grantedAt)
                 }
             }));
 
@@ -595,18 +666,26 @@ const getLeaderTeamTickets = async (req, res) => {
         }
 
         const registrations = await Registration.find({ team: team._id, status: "REGISTERED" })
-            .select("qrToken participantDetails.fullName status isTeamLeader")
+            .select("qrToken participantDetails.fullName status isTeamLeader access event createdAt")
             .sort({ isTeamLeader: -1, createdAt: 1 })
             .lean();
         const tickets = registrations
             .filter(registration => typeof registration.qrToken === "string" && /^[a-f0-9]{64}$/i.test(registration.qrToken))
-            .map(registration => ({
-                registrationId: registration._id,
-                attendeeName: registration.participantDetails?.fullName || "Participant",
-                isTeamLeader: Boolean(registration.isTeamLeader),
-                registrationStatus: registration.status,
-                qrToken: registration.qrToken
-            }));
+            .map(registration => {
+                const effectiveAccess = resolveEffectiveAccess(registration);
+                return {
+                    registrationId: registration._id,
+                    attendeeName: registration.participantDetails?.fullName || "Participant",
+                    isTeamLeader: Boolean(registration.isTeamLeader),
+                    registrationStatus: registration.status,
+                    qrToken: registration.qrToken,
+                    access: {
+                        type: effectiveAccess.type,
+                        eligibleEventIds: effectiveAccess.eligibleEventIds,
+                        grantedAt: effectiveAccess.grantedAt
+                    }
+                };
+            });
 
         if (!tickets.length) {
             return res.status(409).json({ success: false, code: "QR_UNAVAILABLE", message: "No valid ticket QR codes are available for this team." });

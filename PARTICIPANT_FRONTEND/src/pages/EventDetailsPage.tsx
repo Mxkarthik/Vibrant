@@ -58,12 +58,28 @@ export default function EventDetailsPage() {
   const isRegistrationEnabled = registrationState.available && myRegistrationState.kind === "NONE" && !registrationLoading && !registrationError;
   const registration = event.registration;
   const fields = [...(event.registrationFields || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const isCombo = Boolean(event.multiEventAccess?.enabled);
+  const configuredIncludedIds = event.multiEventAccess?.includedEvents || [];
+  const includedDetails = event.includedEventDetails || [];
+  const totalConfigured = configuredIncludedIds.length;
 
   return <article className="event-detail-page">
     <div className="event-detail-breadcrumb"><Link to="/events">← Back to Events</Link><span aria-hidden="true">/</span><span>{categoryLabels[event.category] || event.category}</span></div>
 
     <header className="event-detail-heading">
-      <div><p className="participant-eyebrow">{categoryLabels[event.category] || event.category} · VIBRANT2K26</p><h1>{event.name}</h1><div className="event-detail-badges"><span className={`event-detail-badge ${eventProgress.tone}`}>{eventProgress.label}</span><span className={`event-detail-badge ${registrationState.available ? "is-open" : "is-closed"}`}>{registrationState.label}</span></div></div>
+      <div>
+        <p className="participant-eyebrow">{categoryLabels[event.category] || event.category} · VIBRANT2K26</p>
+        <h1>{event.name}</h1>
+        <div className="event-detail-badges">
+          {isCombo && (
+            <span className="event-detail-badge is-combo">
+              Combo Pass · {totalConfigured} {totalConfigured === 1 ? "Event" : "Events"}
+            </span>
+          )}
+          <span className={`event-detail-badge ${eventProgress.tone}`}>{eventProgress.label}</span>
+          <span className={`event-detail-badge ${registrationState.available ? "is-open" : "is-closed"}`}>{registrationState.label}</span>
+        </div>
+      </div>
     </header>
 
     <div className="event-detail-layout">
@@ -73,6 +89,80 @@ export default function EventDetailsPage() {
         </div>
 
         <section className="event-detail-section"><p className="participant-eyebrow">ABOUT THE EVENT</p><h2>Event overview</h2><p className="event-detail-description">{event.description || "Event description is not available."}</p></section>
+
+        {isCombo && (
+          <section className="event-detail-section event-detail-combo-section" aria-label="Included events in combo pass">
+            <p className="participant-eyebrow">MULTI-EVENT ACCESS</p>
+            <h2>Events Included in This Pass</h2>
+            <p className="event-detail-section-intro">
+              One registration provides access to the following included events, subject to payment approval and event admission requirements.
+            </p>
+
+            {totalConfigured === 0 ? (
+              <div className="event-combo-empty-notice" role="status">
+                <p>No included events are currently configured for this combo pass. Please check back later or contact event administrators.</p>
+              </div>
+            ) : includedDetails.length === 0 ? (
+              <div className="event-combo-empty-notice" role="status">
+                <p>Details for the {totalConfigured} included events are currently unavailable. Please check back later or contact event administrators.</p>
+              </div>
+            ) : (
+              <>
+                {includedDetails.length < totalConfigured && (
+                  <div className="event-combo-partial-warning" role="status">
+                    <span>Showing details for {includedDetails.length} of {totalConfigured} included events. Details for remaining events are currently unavailable.</span>
+                  </div>
+                )}
+                <div className="event-combo-included-grid">
+                  {includedDetails.map((child) => (
+                    <article key={child._id} className="event-combo-child-card">
+                      <div className="event-combo-child-header">
+                        <div className="event-combo-child-tags">
+                          {child.category && (
+                            <span className="event-combo-child-category">
+                              {categoryLabels[child.category] || child.category}
+                            </span>
+                          )}
+                          {child.registration?.mode && (
+                            <span className="event-combo-child-mode">
+                              {child.registration.mode === "TEAM" ? "Team format" : "Individual format"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <h3 className="event-combo-child-name">{child.name}</h3>
+                      <dl className="event-combo-child-facts">
+                        {child.startDate && (
+                          <div>
+                            <dt>Date</dt>
+                            <dd>{child.endDate ? formatDateRange(child.startDate, child.endDate) : formatDate(child.startDate)}</dd>
+                          </div>
+                        )}
+                        {child.startDate && (
+                          <div>
+                            <dt>Time</dt>
+                            <dd>
+                              {formatTime(child.startDate)}
+                              {child.endDate && sameDay(child.startDate, child.endDate)
+                                ? ` – ${formatTime(child.endDate)}`
+                                : child.endDate
+                                  ? ` · Ends ${formatTime(child.endDate)}`
+                                  : ""}
+                            </dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt>Venue</dt>
+                          <dd>{child.venue || "Venue to be announced"}</dd>
+                        </div>
+                      </dl>
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+        )}
 
         <section className="event-detail-section"><p className="participant-eyebrow">WHEN &amp; WHERE</p><h2>Schedule and venue</h2><div className="event-detail-information-grid">
           <InfoItem label="Event dates" value={formatDateRange(event.startDate, event.endDate)} />
@@ -85,16 +175,20 @@ export default function EventDetailsPage() {
       </div>
 
       <aside className="event-registration-panel" aria-label="Registration information">
-        <p className="participant-eyebrow">REGISTRATION</p><h2>Join this event</h2>
+        <p className="participant-eyebrow">{isCombo ? "COMBO PASS REGISTRATION" : "REGISTRATION"}</p><h2>Join this event</h2>
         <div className="event-registration-price">{registration.registrationFee === 0 ? "Free" : formatFee(registration.registrationFee)}</div>
         <dl className="event-registration-facts">
           <InfoRow label="Format" value={registration.mode === "TEAM" ? "Team registration" : "Individual registration"} />
+          {isCombo && (
+            <InfoRow label="Pass type" value={`Multi-event combo (${totalConfigured} included)`} />
+          )}
           <InfoRow label="Deadline" value={formatDate(registration.deadline)} />
           {registration.mode === "TEAM" && isValidTeamSize(registration.minTeamSize) && <InfoRow label="Team size" value={`${registration.minTeamSize}–${isValidTeamSize(registration.maxTeamSize) ? registration.maxTeamSize : registration.minTeamSize} members`} />}
           {registration.capacity !== undefined && registration.registeredParticipants !== undefined && Number.isFinite(registration.capacity) && Number.isFinite(registration.registeredParticipants) && registration.capacity > 0 && <InfoRow label="Availability" value={`${Math.max(0, registration.capacity - registration.registeredParticipants)} of ${registration.capacity} places remaining`} />}
         </dl>
         <div className={`event-registration-explanation ${isRegistrationEnabled ? "is-available" : ""}`}><strong>{myRegistrationState.kind === "INDIVIDUAL" ? "Already Registered" : myRegistrationState.kind === "TEAM" ? "Team Registered" : myRegistrationState.kind === "CANCELLED" ? "Previous registration" : myRegistrationState.kind === "UNKNOWN_TEAM" ? "Registration status unavailable" : registrationLoading ? "Checking your registration" : registrationError ? "Could not check registration" : registrationState.label}</strong><p>{myRegistrationState.kind === "INDIVIDUAL" ? "Your active individual registration is already recorded." : myRegistrationState.kind === "TEAM" ? "Your active team registration is already recorded." : myRegistrationState.kind === "CANCELLED" ? "A previous registration record exists for this account. Contact the event administrator if you need help registering again." : myRegistrationState.kind === "UNKNOWN_TEAM" ? "A team registration record exists, but its current status could not be confirmed." : registrationLoading ? "Checking your registration before offering this action." : registrationError ? "Registration status could not be checked, so registration is temporarily unavailable." : registrationState.explanation}</p></div>
         {myRegistrationState.kind === "INDIVIDUAL" || myRegistrationState.kind === "TEAM" ? <><button className="event-registration-button is-registered" type="button" disabled>{myRegistrationState.kind === "TEAM" ? "Team Registered" : "Already Registered"}</button><Link className="event-registration-existing-link" to={existingRegistrationPath(myRegistrationState)}>{myRegistrationState.kind === "TEAM" && myRegistrationState.registration.isTeamLeader && myRegistrationState.registration.teamId ? "View Team Details" : "View Registration"} ↗</Link></> : myRegistrationState.kind === "CANCELLED" ? <><button className="event-registration-button" type="button" disabled>Previous Registration</button><Link className="event-registration-existing-link" to={existingRegistrationPath(myRegistrationState)}>View Previous Record ↗</Link></> : myRegistrationState.kind === "UNKNOWN_TEAM" || registrationLoading || Boolean(registrationError) || !registrationState.available ? <button className="event-registration-button" type="button" disabled>{myRegistrationState.kind === "UNKNOWN_TEAM" ? "Registration unavailable" : registrationLoading ? "Checking registration…" : registrationError ? "Status unavailable" : registrationState.label}</button> : <Link className="event-registration-button" to={`/events/${event._id}/${registration.mode === "TEAM" ? "register-team" : "register"}`}>{registration.mode === "TEAM" ? "Register Your Team" : "Register Individually"}</Link>}
+        {isCombo && <p className="event-registration-combo-note">Register once to receive access to the included events.</p>}
         {!registrationError && !registrationLoading && myRegistrationState.kind === "NONE" && <p className="event-registration-footnote">Review the registration details before confirming your place.</p>}
         {Boolean(registrationError) && <button type="button" className="event-registration-retry" onClick={refreshRegistrations}>Retry registration check</button>}
       </aside>

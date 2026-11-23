@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, CalendarDays, Check, Clock3, MapPin, Pencil, Trash2, Users } from "lucide-react";
-import { cancelEvent, completeEvent, deleteEvent, getApiErrorMessage, getEvent, type EventRecord, type EventStatus } from "../../api/events";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CalendarDays,
+  Check,
+  Clock3,
+  ExternalLink,
+  Layers,
+  MapPin,
+  Pencil,
+  Trash2,
+  Users
+} from "lucide-react";
+import {
+  cancelEvent,
+  completeEvent,
+  deleteEvent,
+  getApiErrorMessage,
+  getEvent,
+  type EventRecord,
+  type EventStatus
+} from "../../api/events";
 import Button from "../../components/ui/Button";
 import Card from "../../components/ui/Card";
 import PageHeader from "../../components/admin/PageHeader";
 import EventStatusBadge from "../../components/events/EventStatusBadge";
 import ConfirmDialog from "../../components/events/ConfirmDialog";
+import "../../components/events/multiEventAccess.css";
 
 const dateTimeFormat = new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" });
 type ActionType = "cancel" | "complete" | "delete";
@@ -85,6 +106,56 @@ export default function EventDetailsPage() {
           <SectionHeading title="Schedule & venue" icon={<CalendarDays size={16} />} />
           <div className="detail-info-grid"><InfoItem icon={<CalendarDays size={15} />} label="Starts" value={formatDateTime(event.startDate)} /><InfoItem icon={<CalendarDays size={15} />} label="Ends" value={formatDateTime(event.endDate)} /><InfoItem icon={<MapPin size={15} />} label="Venue" value={event.venue} /><InfoItem icon={<Clock3 size={15} />} label="Registration deadline" value={formatDateTime(event.registration.deadline)} /></div>
         </Card>
+        {event.multiEventAccess?.enabled && (
+          <Card className="event-detail-section multi-access-detail-card">
+            <SectionHeading title="Multi-Event Access (Combo Event)" icon={<Layers size={16} />} />
+            <div className="multi-access-summary-banner">
+              <div className="multi-access-summary-badge">
+                <Check size={14} />
+                <span>Combo Pass Active</span>
+              </div>
+              <p>
+                This event acts as a combo pass. Registering for this event grants participants confirmed admission to{" "}
+                <strong>{event.multiEventAccess.includedEvents.length}</strong>{" "}
+                {event.multiEventAccess.includedEvents.length === 1 ? "sub-event" : "sub-events"}.
+              </p>
+            </div>
+            {event.includedEventDetails && event.includedEventDetails.length > 0 ? (
+              <div className="included-events-detail-list">
+                {event.includedEventDetails.map(subEvent => (
+                  <div key={subEvent._id} className="included-event-card">
+                    <div className="included-event-info">
+                      <div className="included-event-title-row">
+                        <Link to={`/admin/events/${subEvent._id}`} className="included-event-link">
+                          <strong>{subEvent.name}</strong>
+                          <ExternalLink size={13} />
+                        </Link>
+                        <div className="included-event-badges">
+                          <span className="event-category-pill">{titleCase(subEvent.category)}</span>
+                          {subEvent.registration?.mode && (
+                            <span className="event-mode-pill">{subEvent.registration.mode}</span>
+                          )}
+                          <EventStatusBadge status={subEvent.status} />
+                        </div>
+                      </div>
+                      <div className="included-event-meta">
+                        <span><MapPin size={12} /> {subEvent.venue}</span>
+                        <span><CalendarDays size={12} /> {formatDateTime(subEvent.startDate)}</span>
+                        {subEvent.registration?.capacity !== undefined && (
+                          <span><Users size={12} /> Capacity: {subEvent.registration.capacity}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="detail-empty-copy">
+                {event.multiEventAccess.includedEvents.length} included event(s) configured.
+              </div>
+            )}
+          </Card>
+        )}
         <Card className="event-detail-section">
           <SectionHeading title="Registration fields" icon={<Users size={16} />} />
           {event.registrationFields?.length ? <div className="detail-fields-list">{[...event.registrationFields].sort((a,b) => a.order - b.order).map(field => <div className="detail-field-row" key={field.fieldId ?? field.fieldKey}><div><strong>{field.label}</strong><small>{field.fieldKey} · {titleCase(field.fieldType)}{field.options?.length ? ` · ${field.options.join(", ")}` : ""}</small></div><span>{field.required ? "Required" : "Optional"}</span></div>)}</div> : <p className="detail-empty-copy">No custom registration fields.</p>}
@@ -93,6 +164,12 @@ export default function EventDetailsPage() {
       <aside className="event-detail-side">
         <Card className="event-detail-section"><SectionHeading title="Registration" icon={<Users size={16} />} />
           <div className="registration-detail-mode"><span>Mode</span><strong>{titleCase(event.registration.mode)}</strong></div>
+          {event.multiEventAccess?.enabled && (
+            <div className="registration-detail-row">
+              <span>Access type</span>
+              <strong className="combo-pass-text">Combo Pass ({event.multiEventAccess.includedEvents.length} events)</strong>
+            </div>
+          )}
           {event.registration.mode === "TEAM" && <div className="registration-detail-row"><span>Team size</span><strong>{event.registration.minTeamSize}–{event.registration.maxTeamSize} members</strong></div>}
           <div className="registration-detail-row"><span>Registration fee</span><strong>{event.registration.registrationFee === 0 ? "Free" : formatCurrency(event.registration.registrationFee)}</strong></div>
           <div className="capacity-detail"><div><span>Capacity</span><strong>{event.registration.registeredParticipants} <small>/ {event.registration.capacity}</small></strong></div><div className="capacity-track"><span style={{ width: `${event.registration.capacity ? Math.min(100, event.registration.registeredParticipants / event.registration.capacity * 100) : 0}%` }} /></div><small>{Math.max(0, event.registration.capacity - event.registration.registeredParticipants)} places remaining</small></div>

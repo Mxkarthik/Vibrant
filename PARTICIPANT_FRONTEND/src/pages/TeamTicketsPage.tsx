@@ -3,11 +3,12 @@ import axios from "axios";
 import { Link, useParams } from "react-router-dom";
 import { getLeaderTeamTickets, type TeamTicketsResponse } from "../api/teamService";
 import TicketCard from "../components/tickets/TicketCard";
-import type { DigitalTicket } from "../api/registrationService";
+import { resolveEntitledEventMetadata, type DigitalTicket, type EntitledEventMeta } from "../api/registrationService";
 
 export default function TeamTicketsPage() {
   const { teamId } = useParams();
   const [result, setResult] = useState<TeamTicketsResponse | null>(null);
+  const [eventsMap, setEventsMap] = useState<Map<string, EntitledEventMeta>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,10 +16,29 @@ export default function TeamTicketsPage() {
     const controller = new AbortController();
     setLoading(true);
     setResult(null);
+    setEventsMap(new Map());
     setError(null);
     if (!teamId) { setError("This team ticket link is invalid."); setLoading(false); return () => controller.abort(); }
     getLeaderTeamTickets(teamId, controller.signal)
-      .then(setResult)
+      .then(async (teamResponse) => {
+        if (controller.signal.aborted) return;
+        setResult(teamResponse);
+
+        const allEligibleIds = Array.from(new Set(
+          teamResponse.tickets.flatMap((t) => t.access?.eligibleEventIds || [])
+        ));
+
+        if (allEligibleIds.length > 0) {
+          try {
+            const metaMap = await resolveEntitledEventMetadata(allEligibleIds, controller.signal);
+            if (!controller.signal.aborted) {
+              setEventsMap(metaMap);
+            }
+          } catch {
+            // Graceful fallback: snapshot IDs only
+          }
+        }
+      })
       .catch((requestError: unknown) => { if (!axios.isCancel(requestError)) setError(ticketError(requestError)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -32,6 +52,8 @@ export default function TeamTicketsPage() {
     <header className="team-tickets-heading"><p className="participant-eyebrow">TEAM ADMISSION</p><h1>{result.team.name}</h1><p>{result.team.event.name} · {result.tickets.length} ticket{result.tickets.length === 1 ? "" : "s"}</p></header>
     {result.unavailableCount > 0 && <p className="ticket-partial-note" role="status">{result.unavailableCount} registered member record{result.unavailableCount === 1 ? " has" : "s have"} no valid QR token. Contact the event administrator.</p>}
     <div className="team-ticket-list">{result.tickets.map((ticket) => {
+      const memberEligibleIds = ticket.access?.eligibleEventIds || [];
+      const entitledEvents = memberEligibleIds.map((id) => eventsMap.get(id) || { _id: id });
       const fullTicket: DigitalTicket = {
         registrationId: ticket.registrationId,
         registrationType: "TEAM",
@@ -43,6 +65,8 @@ export default function TeamTicketsPage() {
         paymentStatus: result.team.paymentStatus,
         ticketStatus: result.team.ticketStatus,
         event: result.team.event,
+        access: ticket.access,
+        entitledEvents: ticket.access?.type === "MULTI_EVENT" ? entitledEvents : undefined,
       };
       return <TicketCard key={ticket.registrationId} ticket={fullTicket} />;
     })}</div>

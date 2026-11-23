@@ -98,6 +98,11 @@ const eventSchema = new mongoose.Schema(
                 type: Number,
                 default: 1,
                 min: 1
+            },
+
+            allowDirectRegistration: {
+                type: Boolean,
+                default: true
             }
         },
 
@@ -171,7 +176,21 @@ const eventSchema = new mongoose.Schema(
                 type: mongoose.Schema.Types.ObjectId,
                 ref: "User"
             }
-        ]
+        ],
+
+        // Multi-Event Access configuration (Phase 01)
+        multiEventAccess: {
+            enabled: {
+                type: Boolean,
+                default: false
+            },
+            includedEvents: [
+                {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "Event"
+                }
+            ]
+        }
     },
     {
         timestamps: true

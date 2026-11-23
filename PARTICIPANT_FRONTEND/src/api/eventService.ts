@@ -5,6 +5,25 @@ export type EventCategory = typeof EVENT_CATEGORIES[number];
 export type EventFilter = "" | "upcoming" | "open" | "closing-soon" | "free" | "paid";
 export type EventSort = "upcoming" | "latest" | "name";
 
+export interface MultiEventAccess {
+  enabled: boolean;
+  includedEvents: string[];
+}
+
+export interface IncludedEventDetail {
+  _id: string;
+  name: string;
+  category?: EventCategory | string;
+  venue?: string;
+  startDate?: string;
+  endDate?: string;
+  status?: string;
+  registration?: {
+    mode?: "INDIVIDUAL" | "TEAM";
+    capacity?: number;
+  };
+}
+
 export interface DiscoverableEvent {
   _id: string;
   name: string;
@@ -24,6 +43,7 @@ export interface DiscoverableEvent {
     minTeamSize?: number;
     maxTeamSize?: number;
   };
+  multiEventAccess?: MultiEventAccess;
   status: "PUBLISHED" | "CANCELLED" | "COMPLETED";
   createdAt: string;
 }
@@ -44,6 +64,7 @@ export interface EventDetails extends DiscoverableEvent {
     maxTeamSize?: number;
   };
   registrationFields?: EventRegistrationField[];
+  includedEventDetails?: IncludedEventDetail[];
   updatedAt?: string;
 }
 

@@ -35,8 +35,26 @@ export interface EventRecord {
     registrationFee: number;
     minTeamSize: number;
     maxTeamSize: number;
+    allowDirectRegistration?: boolean;
   };
   registrationFields: RegistrationField[];
+  multiEventAccess?: {
+    enabled: boolean;
+    includedEvents: string[];
+  };
+  includedEventDetails?: Array<{
+    _id: string;
+    name: string;
+    category: EventCategory;
+    venue: string;
+    startDate: string;
+    endDate: string;
+    status: EventStatus;
+    registration?: {
+      mode: RegistrationMode;
+      capacity: number;
+    };
+  }>;
 }
 
 export interface EventListParams {
@@ -80,6 +98,41 @@ export interface CreateEventPayload {
     maxTeamSize?: number;
   };
   registrationFields: RegistrationField[];
+  multiEventAccess?: {
+    enabled: boolean;
+    includedEvents: string[];
+  };
+}
+
+export interface EligibleEventItem {
+  _id: string;
+  name: string;
+  category: EventCategory;
+  venue: string;
+  startDate: string;
+  endDate: string;
+  status: EventStatus;
+  registrationMode: RegistrationMode;
+  capacity: number;
+  registrationFee: number;
+  allowDirectRegistration: boolean;
+  isEligible: boolean;
+  ineligibilityReason: string | null;
+  isAlreadyIncluded: boolean;
+}
+
+export interface EligibleMultiAccessResponse {
+  success: boolean;
+  total: number;
+  eligibleCount: number;
+  isParentEligibleAsCombo: boolean;
+  parentIneligibilityReason: string | null;
+  events: EligibleEventItem[];
+}
+
+export async function getEligibleMultiAccessEvents(params: { parentId?: string; parentMode?: RegistrationMode } = {}) {
+  const { data } = await api.get<EligibleMultiAccessResponse>("/admin/events/eligible-multi-access", { params });
+  return data;
 }
 
 export async function getAdminEvents(params: EventListParams = {}) {

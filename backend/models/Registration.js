@@ -176,6 +176,82 @@ const registrationSchema = new mongoose.Schema(
             }
         },
 
+        // Event-specific attendance for multi-event access (additive)
+        eventAttendance: [
+            {
+                eventId: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "Event",
+                    required: true
+                },
+                checkedInAt: {
+                    type: Date,
+                    required: true,
+                    default: Date.now
+                },
+                checkedInBy: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: "User",
+                    default: null
+                }
+            }
+        ],
+
+        // Multi-Event Access entitlement snapshot (additive, optional for legacy documents)
+        access: {
+            type: new mongoose.Schema(
+                {
+                    type: {
+                        type: String,
+                        enum: ["SINGLE_EVENT", "MULTI_EVENT"],
+                        required: true
+                    },
+                    eligibleEventIds: {
+                        type: [
+                            {
+                                type: mongoose.Schema.Types.ObjectId,
+                                ref: "Event",
+                                required: true
+                            }
+                        ],
+                        validate: [
+                            {
+                                validator: function (val) {
+                                    return Array.isArray(val) && val.length > 0;
+                                },
+                                message: "eligibleEventIds must be a non-empty array of Event IDs"
+                            },
+                            {
+                                validator: function (val) {
+                                    if (!Array.isArray(val)) return false;
+                                    const strings = val.map(id => (id ? id.toString() : ""));
+                                    return new Set(strings).size === strings.length;
+                                },
+                                message: "eligibleEventIds cannot contain duplicate Event IDs"
+                            },
+                            {
+                                validator: function (val) {
+                                    if (!Array.isArray(val)) return false;
+                                    const parent = this.type ? this : (this.parent ? this.parent() : {});
+                                    if (parent.type === "SINGLE_EVENT") {
+                                        return val.length === 1;
+                                    }
+                                    return true;
+                                },
+                                message: "SINGLE_EVENT access must contain exactly one eligible event ID"
+                            }
+                        ]
+                    },
+                    grantedAt: {
+                        type: Date,
+                        default: Date.now
+                    }
+                },
+                { _id: false }
+            ),
+            default: undefined
+        },
+
         // Certificate details (top-level field)
         certificate: {
             certificateId: {

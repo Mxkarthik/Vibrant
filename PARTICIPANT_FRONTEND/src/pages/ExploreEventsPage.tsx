@@ -148,6 +148,9 @@ function EventCard({ event, registrationState, registrationLoading, registration
       : !hasCapacityData || !teamConfigurationValid ? "Availability unavailable" : isFull ? "Fully booked" : !enoughPlacesForTeam ? "Not enough places for a team" : isOpen ? "Registration open" : "Registration closed";
   const tone = availability === "Registration open" ? "is-open" : availability === "Fully booked" ? "is-full" : "is-closed";
 
+  const isCombo = Boolean(event.multiEventAccess?.enabled);
+  const includedCount = Array.isArray(event.multiEventAccess?.includedEvents) ? event.multiEventAccess.includedEvents.length : 0;
+
   return <article className="discover-card">
     <div className="discover-card-image">
       {event.poster && !imageFailed ? (
@@ -171,8 +174,19 @@ function EventCard({ event, registrationState, registrationLoading, registration
           <span className="discover-category-tag">{categoryLabels[event.category] || event.category}</span>
           <span className="discover-meta-separator">·</span>
           <span className="discover-mode-tag">{registration.mode === "TEAM" ? "Team event" : "Individual event"}</span>
+          {isCombo && (
+            <>
+              <span className="discover-meta-separator">·</span>
+              <span className="discover-combo-tag">Combo Pass</span>
+            </>
+          )}
         </div>
-        <span className={`discover-availability ${tone}`}>{availability}</span>
+        <div className="discover-card-badges">
+          {isCombo && includedCount > 0 && (
+            <span className="discover-combo-badge">Includes {includedCount} {includedCount === 1 ? "Event" : "Events"}</span>
+          )}
+          <span className={`discover-availability ${tone}`}>{availability}</span>
+        </div>
       </div>
       <h2>{event.name}</h2>
       <p className="discover-description">{event.description}</p>

@@ -165,6 +165,11 @@ export default function IndividualRegistrationPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const isCombo = Boolean(event?.multiEventAccess?.enabled);
+  const includedIds = event?.multiEventAccess?.includedEvents || [];
+  const includedDetails = event?.includedEventDetails || [];
+  const totalIncluded = includedIds.length;
+
   const confirmRegistration = async () => {
     if (!eventId || !event || submitLock.current || submitting) return;
     const validation = validate();
@@ -229,8 +234,45 @@ export default function IndividualRegistrationPage() {
       <div className="registration-form-actions"><Link to={`/events/${event._id}`} className="registration-text-link">Cancel</Link><button className="participant-button" type="submit">Review registration <span aria-hidden="true">→</span></button></div>
     </form> : <section className="registration-review-card"><p className="participant-eyebrow">FINAL REVIEW</p><h2>Confirm your registration</h2><p className="registration-review-intro">Check the details below before submitting your registration.</p>
       {submitError && <div className="registration-submit-error" role="alert"><p>{submitError}</p>{isUnauthorizedError(submitError) && <Link to="/login">Sign in again</Link>}</div>}
-      <div className="registration-review-event"><span>Event</span><strong>{event.name}</strong></div>
-      <div className="registration-review-grid"><ReviewItem label="Registration type" value="Individual" /><ReviewItem label="Participant" value={details.fullName} /><ReviewItem label="Email" value={user?.email || "Unavailable"} /><ReviewItem label="Mobile number" value={details.mobileNumber} /><ReviewItem label="College" value={details.collegeName} /><ReviewItem label="Department" value={details.department} /><ReviewItem label="Year / section" value={`${details.yearOfStudy} · ${details.section}`} /><ReviewItem label="Roll number" value={details.rollNumber} /><ReviewItem label="Registration fee" value={event.registration.registrationFee === 0 ? "Free" : formatFee(event.registration.registrationFee)} />{event.registration.registrationFee > 0 && <ReviewItem label="Selected payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
+      <div className="registration-review-event">
+        <div>
+          <span>{isCombo ? "Combo Event" : "Event"}</span>
+          <strong>{event.name}</strong>
+        </div>
+        {isCombo && (
+          <span className="registration-combo-pill">
+            Combo Pass · {totalIncluded} {totalIncluded === 1 ? "Event" : "Events"}
+          </span>
+        )}
+      </div>
+      {isCombo && (
+        <div className="registration-combo-review-block" aria-label="Combo pass included events">
+          <div className="registration-combo-review-header">
+            <h3>Events Included in This Pass</h3>
+            <span>{totalIncluded} {totalIncluded === 1 ? "Event" : "Events"} covered</span>
+          </div>
+          {includedDetails.length > 0 ? (
+            <ul className="registration-combo-review-list">
+              {includedDetails.map((child) => (
+                <li key={child._id}>
+                  <strong>{child.name}</strong>
+                  {child.venue && <small>· {child.venue}</small>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="registration-combo-review-empty">
+              {totalIncluded > 0
+                ? `Covers ${totalIncluded} included events. Event schedules and venues will be available on your digital ticket.`
+                : "No child events are currently configured for this combo pass."}
+            </p>
+          )}
+          <p className="registration-combo-review-note">
+            Your registration includes access to the listed events. Your existing QR ticket will be valid at each included event after the required payment verification.
+          </p>
+        </div>
+      )}
+      <div className="registration-review-grid"><ReviewItem label="Registration type" value={isCombo ? "Individual (Combo Pass)" : "Individual"} /><ReviewItem label="Participant" value={details.fullName} /><ReviewItem label="Email" value={user?.email || "Unavailable"} /><ReviewItem label="Mobile number" value={details.mobileNumber} /><ReviewItem label="College" value={details.collegeName} /><ReviewItem label="Department" value={details.department} /><ReviewItem label="Year / section" value={`${details.yearOfStudy} · ${details.section}`} /><ReviewItem label="Roll number" value={details.rollNumber} /><ReviewItem label="Registration fee" value={event.registration.registrationFee === 0 ? "Free" : formatFee(event.registration.registrationFee)} />{event.registration.registrationFee > 0 && <ReviewItem label="Selected payment method" value={paymentMethod === "UPI" ? "UPI" : "Cash"} />}{paymentMethod === "CASH" && <ReviewItem label="Cash received by" value={cashReceiverName} />}</div>
       {paymentMethod === "UPI" && paymentProof && <div className="registration-review-proof"><h3>Payment screenshot</h3><p>{paymentProof.name}</p><PaymentProofPreview file={paymentProof} /></div>}
       {sortedFields.length > 0 && <div className="registration-review-custom"><h3>Event responses</h3>{sortedFields.map((field) => <ReviewItem key={field.fieldId} label={field.label} value={formatAnswer(answers[field.fieldKey])} />)}</div>}
       <div className="registration-review-important"><strong>Important</strong><p>Registration closes on {formatDate(event.registration.deadline)}. {event.registration.registrationFee > 0 ? "Your payment information and proof will be submitted with the registration. Payment remains pending until administrator verification." : "No payment is required for this event."}</p></div>
@@ -267,10 +309,12 @@ function ExistingRegistration({ event, state }: { event: EventDetails; state: Ex
 }
 
 function RegistrationSuccess({ event, receipt }: { event: EventDetails; receipt: RegistrationReceipt }) {
+  const isCombo = Boolean(event.multiEventAccess?.enabled);
   const paymentRequired = event.registration.registrationFee > 0;
   return <section className="registration-success-card"><span className="registration-success-mark" aria-hidden="true">✓</span><p className="participant-eyebrow">VIBRANT2K26 · REGISTRATION</p><h1>You’re registered.</h1><p className="registration-success-lede">Your place for <strong>{event.name}</strong> has been recorded.</p>
     <div className="registration-success-details"><ReviewItem label="Registration reference" value={receipt.id} /><ReviewItem label="Registration status" value={formatStatus(receipt.status)} /><ReviewItem label="Payment status" value={formatStatus(receipt.paymentStatus)} /></div>
     {paymentRequired && <p className="registration-payment-reminder">Payment status: {formatStatus(receipt.paymentStatus)}. Submitted payment information remains pending until administrator verification.</p>}
+    {isCombo && <p className="registration-combo-success-note">Your digital admission ticket will cover all included events once payment is verified.</p>}
     <div className="registration-form-actions"><Link className="registration-secondary-button" to={`/events/${event._id}`}>Back to Event</Link><Link className="participant-button" to={`/registrations/${receipt.id}`}>View This Registration</Link></div>
   </section>;
 }
