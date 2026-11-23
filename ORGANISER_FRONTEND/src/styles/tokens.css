@@ -1,0 +1,65 @@
+:root {
+  --font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* Modern White Surface & Canvas Palette (Design Reference) */
+  --bg: #F7F9FF;
+  --bg-subtle: #F0F4FA;
+  --white: #FFFFFF;
+  --card: #FFFFFF;
+  --card-bg: #FFFFFF;
+
+  /* Deep Navy & Primary Slate */
+  --navy: #142859;
+  --navy-dark: #0A1633;
+  --navy-light: #223875;
+  --text: #142859;
+  --text-primary: #142859;
+  --text-secondary: #6D7B9A;
+  --secondary: #6D7B9A;
+  --muted: #94A3B8;
+
+  /* Indigo Primary Accents */
+  --primary: #514BFF;
+  --primary-hover: #4338E8;
+  --primary-light: #EEF0FF;
+  --primary-soft: rgba(81, 75, 255, 0.08);
+  --blue: #514BFF;
+  --blue-light: #EEF0FF;
+
+  /* Borders & Dividers */
+  --border: #E1E7F4;
+  --border-light: #EEF2F9;
+  --border-dark: #CBD5E1;
+  --border-focus: #514BFF;
+
+  /* Semantic Alerts & Badges */
+  --success: #16A673;
+  --success-bg: #E8F8F2;
+  --success-border: #A7F3D0;
+
+  --warning: #F59E0B;
+  --warning-bg: #FFFBEB;
+  --warning-border: #FDE68A;
+
+  --error: #DC4545;
+  --error-bg: #FDEEEE;
+  --error-border: #FCA5A5;
+
+  /* Rounded Radii */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 9999px;
+
+  /* Soft Restrained Shadows */
+  --shadow-xs: 0 1px 2px rgba(20, 40, 89, 0.04);
+  --shadow-sm: 0 2px 8px rgba(20, 40, 89, 0.05);
+  --shadow-md: 0 4px 16px rgba(20, 40, 89, 0.07);
+  --shadow-lg: 0 12px 32px rgba(20, 40, 89, 0.10);
+  --shadow-dock: 0 10px 30px rgba(20, 40, 89, 0.14);
+
+  /* Mobile Safe Areas */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}

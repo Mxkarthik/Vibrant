@@ -139,7 +139,12 @@ router.get(
 
 router.post("/:id/register-team", protect, authorizeParticipantPortal, paymentProofUpload, registerTeam);
 
-router.get("/:id/participants", protect, getEventParticipants);
+router.get(
+    "/:id/participants",
+    protect,
+    authorizeRoles("ADMIN", "ORGANISER"),
+    getEventParticipants
+);
 
 
 module.exports = router;

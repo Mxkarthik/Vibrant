@@ -193,6 +193,10 @@ const registrationSchema = new mongoose.Schema(
                     type: mongoose.Schema.Types.ObjectId,
                     ref: "User",
                     default: null
+                },
+                checkInMethod: {
+                    type: String,
+                    enum: ["QR_SCAN", "MANUAL_REG_ID"]
                 }
             }
         ],

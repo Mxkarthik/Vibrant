@@ -7,8 +7,10 @@ const router = express.Router();
 const authorizeRoles = require("../middleware/roleMiddleware");
 const authorizeParticipantPortal = require("../middleware/authorizeParticipantPortal");
 const { resolveAdminFrontendUrl } = require("../utils/adminFrontendUrl");
+const { resolveOrganiserFrontendUrl } = require("../utils/organiserFrontendUrl");
 
 const adminFrontendUrl = resolveAdminFrontendUrl();
+const organiserFrontendUrl = resolveOrganiserFrontendUrl();
 
 /**
  * Resolves the Participant Frontend URL.
@@ -65,6 +67,7 @@ const startGoogleAuth = (portal) => (req, res, next) => {
 
 router.get("/google", setAuthPortal("admin"), startGoogleAuth("admin"));
 router.get("/google/participant", setAuthPortal("participant"), startGoogleAuth("participant"));
+router.get("/google/organiser", setAuthPortal("organiser"), startGoogleAuth("organiser"));
 
 // ==========================================
 // 2. Google OAuth Callback + JWT Generation
@@ -73,8 +76,10 @@ router.get("/google/participant", setAuthPortal("participant"), startGoogleAuth(
 router.get("/google/callback", (req, res, next) => {
     const portal = req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
-        : "admin";
-    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : adminFrontendUrl;
+        : (req.query.state === "organiser" || req.session?.authPortal === "organiser" ? "organiser" : "admin");
+    const frontendUrl = portal === "participant"
+        ? getParticipantFrontendUrl()
+        : (portal === "organiser" ? organiserFrontendUrl : adminFrontendUrl);
     const failureUrl = portal === "participant"
         ? `${frontendUrl}/auth/callback?error=google_auth_failed`
         : `${frontendUrl}/login?error=google_auth_failed`;
@@ -91,8 +96,10 @@ router.get("/google/callback", (req, res, next) => {
 }, (req, res) => {
     const portal = req.authPortal === "participant" || req.query.state === "participant" || req.session?.authPortal === "participant"
         ? "participant"
-        : "admin";
-    const frontendUrl = portal === "participant" ? getParticipantFrontendUrl() : adminFrontendUrl;
+        : (req.authPortal === "organiser" || req.query.state === "organiser" || req.session?.authPortal === "organiser" ? "organiser" : "admin");
+    const frontendUrl = portal === "participant"
+        ? getParticipantFrontendUrl()
+        : (portal === "organiser" ? organiserFrontendUrl : adminFrontendUrl);
     if (req.session) delete req.session.authPortal;
 
     try {
@@ -103,6 +110,9 @@ router.get("/google/callback", (req, res, next) => {
         });
         if (portal === "participant") {
             return res.redirect(302, `${frontendUrl}/auth/callback?token=${encodeURIComponent(token)}`);
+        }
+        if (portal === "organiser") {
+            return res.redirect(302, `${frontendUrl}/scanner`);
         }
         return res.redirect(302, `${frontendUrl}/admin`);
     } catch (error) {
@@ -118,7 +128,10 @@ router.get("/google/callback", (req, res, next) => {
 
 router.get("/failed", (req, res) => {
     const isParticipant = req.query.state === "participant" || req.session?.authPortal === "participant";
-    const frontendUrl = isParticipant ? getParticipantFrontendUrl() : adminFrontendUrl;
+    const isOrganiser = req.query.state === "organiser" || req.session?.authPortal === "organiser";
+    const frontendUrl = isParticipant
+        ? getParticipantFrontendUrl()
+        : (isOrganiser ? organiserFrontendUrl : adminFrontendUrl);
     if (req.session) delete req.session.authPortal;
     const failurePath = isParticipant ? "/auth/callback?error=google_auth_failed" : "/login?error=google_auth_failed";
     return res.redirect(302, `${frontendUrl}${failurePath}`);

@@ -1249,177 +1249,234 @@ const markAttendance = async (req, res) => {
             }
         }
 
-        // Ensure parent combo event is populated for verification
-        const parentEvent = registration.event || (registration.team && registration.team.event);
-
-        // Admission eligibility check
-        const eligibility = resolveRegistrationAdmissionEligibility({
+        // Execute atomic check-in via shared engine
+        const result = await executeAdmissionCheckIn({
             registration,
-            team: registration.team,
             targetEvent,
-            parentEvent
+            effectiveAccess,
+            user: req.user,
+            checkInMethod: "QR_SCAN"
         });
 
-        if (!eligibility.isEligible) {
-            const statusCode = eligibility.reasonCode === "EVENT_NOT_ENTITLED"
-                ? 403
-                : (eligibility.reasonCode === "ALREADY_CHECKED_IN" ? 409 : 400);
+        return res.status(result.statusCode).json(result.body);
 
-            return res.status(statusCode).json({
+    } catch (error) {
+        console.error("Attendance error:", error);
+
+        return res.status(500).json({
+            success: false,
+            message: "Failed to mark attendance."
+        });
+    }
+};
+
+/**
+ * Shared atomic admission check-in execution engine used by both QR scan and Manual check-in.
+ * Enforces unified eligibility, duplicate prevention, atomic update, and combo completion reconciliation.
+ */
+async function executeAdmissionCheckIn({
+    registration,
+    targetEvent,
+    effectiveAccess,
+    user,
+    checkInMethod = "QR_SCAN"
+}) {
+    const targetEventId = targetEvent._id;
+    const targetEventIdStr = targetEventId.toString();
+    const isCombo = effectiveAccess.type === "MULTI_EVENT";
+
+    // Ensure parent combo event is populated for verification
+    const parentEvent = registration.event || (registration.team && registration.team.event);
+
+    // Admission eligibility check
+    const eligibility = resolveRegistrationAdmissionEligibility({
+        registration,
+        team: registration.team,
+        targetEvent,
+        parentEvent
+    });
+
+    if (!eligibility.isEligible) {
+        const statusCode = eligibility.reasonCode === "EVENT_NOT_ENTITLED"
+            ? 403
+            : (eligibility.reasonCode === "ALREADY_CHECKED_IN" ? 409 : 400);
+
+        return {
+            statusCode,
+            body: {
                 success: false,
                 code: eligibility.reasonCode,
                 message: eligibility.message
-            });
-        }
+            }
+        };
+    }
 
-        // Check if already checked in for this event
-        const existingAttendance = Array.isArray(registration.eventAttendance)
-            ? registration.eventAttendance.find(e => e.eventId.toString() === targetEventIdStr)
-            : null;
+    // Check if already checked in for this event
+    const existingAttendance = Array.isArray(registration.eventAttendance)
+        ? registration.eventAttendance.find(e => e.eventId.toString() === targetEventIdStr)
+        : null;
 
-        if (existingAttendance) {
-            return res.status(409).json({
+    if (existingAttendance) {
+        return {
+            statusCode: 409,
+            body: {
                 success: false,
                 code: "ALREADY_CHECKED_IN",
                 message: "Participant has already checked in for this event.",
                 participant: registration.participantDetails?.fullName,
                 checkedInAt: existingAttendance.checkedInAt
-            });
-        }
+            }
+        };
+    }
 
-        // Legacy already-present check for single event
-        if (!isCombo && registration.attendance && registration.attendance.isPresent) {
-            return res.status(409).json({
+    // Legacy already-present check for single event
+    if (!isCombo && registration.attendance && registration.attendance.isPresent) {
+        return {
+            statusCode: 409,
+            body: {
                 success: false,
                 code: "ALREADY_CHECKED_IN",
                 message: "Participant has already checked in.",
                 participant: registration.participantDetails?.fullName,
                 checkedInAt: registration.attendance.checkedInAt
-            });
-        }
-
-        const now = new Date();
-        const isSingleEvent = !isCombo;
-
-        // Check combo completion
-        const existingAttendedIds = new Set(
-            (registration.eventAttendance || []).map(e => e.eventId.toString())
-        );
-        existingAttendedIds.add(targetEventIdStr);
-        const isComboComplete = isCombo && effectiveAccess.eligibleEventIds.every(
-            id => existingAttendedIds.has(id.toString())
-        );
-
-        // Atomic update: condition prevents duplicate check-in
-        const updateQuery = {
-            _id: registration._id,
-            status: "REGISTERED",
-            "eventAttendance.eventId": { $ne: targetEventId }
-        };
-        if (isSingleEvent) {
-            updateQuery["attendance.isPresent"] = false;
-        }
-        if (!registration.team) {
-            updateQuery["payment.status"] = { $in: ["VERIFIED", "NOT_REQUIRED"] };
-        }
-
-        const updateOp = {
-            $push: {
-                eventAttendance: {
-                    eventId: targetEventId,
-                    checkedInAt: now,
-                    checkedInBy: req.user?._id || null
-                }
             }
         };
+    }
 
-        if ((isSingleEvent || isComboComplete) && !registration.attendance?.isPresent) {
-            updateOp.$set = {
-                "attendance.isPresent": true,
-                "attendance.checkedInAt": now
-            };
+    const now = new Date();
+    const isSingleEvent = !isCombo;
+
+    // Check combo completion
+    const existingAttendedIds = new Set(
+        (registration.eventAttendance || []).map(e => e.eventId.toString())
+    );
+    existingAttendedIds.add(targetEventIdStr);
+    const isComboComplete = isCombo && effectiveAccess.eligibleEventIds.every(
+        id => existingAttendedIds.has(id.toString())
+    );
+
+    // Atomic update: condition prevents duplicate check-in
+    const updateQuery = {
+        _id: registration._id,
+        status: "REGISTERED",
+        "eventAttendance.eventId": { $ne: targetEventId }
+    };
+    if (isSingleEvent) {
+        updateQuery["attendance.isPresent"] = false;
+    }
+    if (!registration.team) {
+        updateQuery["payment.status"] = { $in: ["VERIFIED", "NOT_REQUIRED"] };
+    }
+
+    const updateOp = {
+        $push: {
+            eventAttendance: {
+                eventId: targetEventId,
+                checkedInAt: now,
+                checkedInBy: user?._id || null,
+                checkInMethod
+            }
         }
+    };
 
-        const updatedRegistration = await Registration.findOneAndUpdate(
-            updateQuery,
-            updateOp,
-            { new: true }
-        );
+    if ((isSingleEvent || isComboComplete) && !registration.attendance?.isPresent) {
+        updateOp.$set = {
+            "attendance.isPresent": true,
+            "attendance.checkedInAt": now
+        };
+    }
 
-        if (!updatedRegistration) {
-            try {
-                if (typeof Registration.findById === "function") {
-                    const query = Registration.findById(registration._id);
-                    const freshReg = query && typeof query.select === "function"
-                        ? await query.select("status payment.status")
-                        : (query && typeof query.then === "function" ? await query : null);
-                    if (freshReg) {
-                        if (freshReg.status !== "REGISTERED") {
-                            return res.status(400).json({
+    const updatedRegistration = await Registration.findOneAndUpdate(
+        updateQuery,
+        updateOp,
+        { new: true }
+    );
+
+    if (!updatedRegistration) {
+        try {
+            if (typeof Registration.findById === "function") {
+                const query = Registration.findById(registration._id);
+                const freshReg = query && typeof query.select === "function"
+                    ? await query.select("status payment.status")
+                    : (query && typeof query.then === "function" ? await query : null);
+                if (freshReg) {
+                    if (freshReg.status !== "REGISTERED") {
+                        return {
+                            statusCode: 400,
+                            body: {
                                 success: false,
                                 code: "REGISTRATION_CANCELLED",
                                 message: "Registration is cancelled or inactive."
-                            });
-                        }
-                        if (!registration.team && !["VERIFIED", "NOT_REQUIRED"].includes(freshReg.payment?.status)) {
-                            return res.status(400).json({
+                            }
+                        };
+                    }
+                    if (!registration.team && !["VERIFIED", "NOT_REQUIRED"].includes(freshReg.payment?.status)) {
+                        return {
+                            statusCode: 400,
+                            body: {
                                 success: false,
                                 code: "PAYMENT_REJECTED",
                                 message: "Payment is not verified."
-                            });
-                        }
+                            }
+                        };
                     }
                 }
-            } catch (lookupErr) {
-                // Ignore fallback error
             }
-            return res.status(409).json({
+        } catch (lookupErr) {
+            // Ignore fallback error
+        }
+        return {
+            statusCode: 409,
+            body: {
                 success: false,
                 code: "ALREADY_CHECKED_IN",
                 message: "Participant has already checked in for this event."
-            });
-        }
+            }
+        };
+    }
 
-        // Post-update verification and atomic reconciliation for combo completion
-        let isComplete = false;
-        if (isSingleEvent) {
+    // Post-update verification and atomic reconciliation for combo completion
+    let isComplete = false;
+    if (isSingleEvent) {
+        isComplete = true;
+    } else if (isCombo) {
+        const postAttendedIds = new Set(
+            (updatedRegistration.eventAttendance || []).map(e => e.eventId.toString())
+        );
+        const isNowComplete = effectiveAccess.eligibleEventIds.every(
+            id => postAttendedIds.has(id.toString())
+        );
+
+        if (isNowComplete) {
             isComplete = true;
-        } else if (isCombo) {
-            const postAttendedIds = new Set(
-                (updatedRegistration.eventAttendance || []).map(e => e.eventId.toString())
-            );
-            const isNowComplete = effectiveAccess.eligibleEventIds.every(
-                id => postAttendedIds.has(id.toString())
-            );
-
-            if (isNowComplete) {
-                isComplete = true;
-                if (!updatedRegistration.attendance?.isPresent) {
-                    const reconciled = await Registration.findOneAndUpdate(
-                        {
-                            _id: updatedRegistration._id,
-                            status: "REGISTERED",
-                            "attendance.isPresent": false
-                        },
-                        {
-                            $set: {
-                                "attendance.isPresent": true,
-                                "attendance.checkedInAt": now
-                            }
-                        },
-                        { new: true }
-                    );
-                    if (reconciled) {
-                        updatedRegistration.attendance = reconciled.attendance;
-                    }
+            if (!updatedRegistration.attendance?.isPresent) {
+                const reconciled = await Registration.findOneAndUpdate(
+                    {
+                        _id: updatedRegistration._id,
+                        status: "REGISTERED",
+                        "attendance.isPresent": false
+                    },
+                    {
+                        $set: {
+                            "attendance.isPresent": true,
+                            "attendance.checkedInAt": now
+                        }
+                    },
+                    { new: true }
+                );
+                if (reconciled) {
+                    updatedRegistration.attendance = reconciled.attendance;
                 }
             }
         }
+    }
 
-        const attendedCount = (updatedRegistration.eventAttendance || []).length;
-        const totalEligible = effectiveAccess.eligibleEventIds.length;
+    const attendedCount = (updatedRegistration.eventAttendance || []).length;
+    const totalEligible = effectiveAccess.eligibleEventIds.length;
 
-        return res.status(200).json({
+    return {
+        statusCode: 200,
+        body: {
             success: true,
             message: "Attendance marked successfully.",
             participant: {
@@ -1439,14 +1496,318 @@ const markAttendance = async (req, res) => {
                     isComplete
                 }
             } : {})
+        }
+    };
+}
+
+/**
+ * Searches and validates a participant registration for manual check-in pre-flight review.
+ * Read-only: strictly avoids any state mutation or attendance recording.
+ * Route: POST /api/registrations/manual-lookup
+ */
+const lookupRegistrationForManualCheckIn = async (req, res) => {
+    try {
+        const { registrationId, eventId } = req.body || {};
+
+        const cleanRegId = typeof registrationId === "string" ? registrationId.trim() : "";
+        if (!cleanRegId || !/^[a-f0-9]{24}$/i.test(cleanRegId) || !mongoose.isValidObjectId(cleanRegId)) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_REGISTRATION_ID",
+                message: "Invalid Registration ID format. Expected a 24-character hexadecimal ID."
+            });
+        }
+
+        if (!eventId || typeof eventId !== "string" || !mongoose.isValidObjectId(eventId.trim())) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_EVENT_ID",
+                message: "Invalid event ID format."
+            });
+        }
+
+        const cleanEventId = eventId.trim();
+
+        // 1. Fetch and validate target event
+        const targetEvent = await Event.findById(cleanEventId).select("name status organizers multiEventAccess");
+        if (!targetEvent) {
+            return res.status(404).json({
+                success: false,
+                code: "EVENT_NOT_FOUND",
+                message: "Selected event venue not found."
+            });
+        }
+
+        // Reject Combo Pass parents as check-in destinations
+        if (Boolean(targetEvent.multiEventAccess?.enabled)) {
+            return res.status(400).json({
+                success: false,
+                code: "COMBO_PARENT_NOT_VENUE",
+                message: "Multi-Event Packages are registration bundles and cannot be used as scanning or check-in venues. Please select an included physical event venue."
+            });
+        }
+
+        // 2. Organiser scoping check
+        if (req.user && req.user.role === "ORGANISER") {
+            if (Array.isArray(targetEvent.organizers) && targetEvent.organizers.length > 0) {
+                const isAssigned = targetEvent.organizers.some(
+                    orgId => orgId.toString() === req.user._id.toString()
+                );
+                if (!isAssigned) {
+                    return res.status(403).json({
+                        success: false,
+                        code: "ORGANISER_NOT_ASSIGNED",
+                        message: "You are not authorized to view registrations for this event."
+                    });
+                }
+            }
+        }
+
+        // 3. Query the exact registration record, strictly excluding qrToken
+        const registration = await Registration.findById(cleanRegId)
+            .select("-qrToken")
+            .populate("event", "name status multiEventAccess")
+            .populate({
+                path: "team",
+                select: "teamName status payment event",
+                populate: { path: "event", select: "name status" }
+            });
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                code: "REGISTRATION_NOT_FOUND",
+                message: "No registration found with this ID."
+            });
+        }
+
+        // 4. Resolve access and eligibility
+        let effectiveAccess;
+        try {
+            effectiveAccess = resolveEffectiveAccess(registration);
+        } catch (accessErr) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_ACCESS_SNAPSHOT",
+                message: accessErr.message || "Invalid registration access snapshot."
+            });
+        }
+
+        const isCombo = effectiveAccess.type === "MULTI_EVENT";
+        const parentEvent = registration.event || (registration.team && registration.team.event);
+
+        const eligibility = resolveRegistrationAdmissionEligibility({
+            registration,
+            team: registration.team,
+            targetEvent,
+            parentEvent
+        });
+
+        // 5. Check attendance status for target event
+        const targetEventIdStr = targetEvent._id.toString();
+        const existingAttendance = Array.isArray(registration.eventAttendance)
+            ? registration.eventAttendance.find(e => e.eventId.toString() === targetEventIdStr)
+            : null;
+
+        let alreadyCheckedIn = Boolean(existingAttendance);
+        let checkedInAt = existingAttendance ? existingAttendance.checkedInAt : null;
+
+        if (!isCombo && registration.attendance && registration.attendance.isPresent) {
+            alreadyCheckedIn = true;
+            checkedInAt = checkedInAt || registration.attendance.checkedInAt;
+        }
+
+        // 6. Privacy-safe participant formatting (masked phone number)
+        const rawPhone = registration.participantDetails?.mobileNumber || "";
+        const maskedMobile = rawPhone.length > 4
+            ? "*".repeat(Math.max(0, rawPhone.length - 4)) + rawPhone.slice(-4)
+            : (rawPhone || null);
+
+        const paymentStatus = registration.team
+            ? (registration.team.payment?.status || "NOT_REQUIRED")
+            : (registration.payment?.status || "NOT_REQUIRED");
+
+        const canCheckIn = eligibility.isEligible && !alreadyCheckedIn;
+        const reasonCode = alreadyCheckedIn
+            ? "ALREADY_CHECKED_IN"
+            : (eligibility.isEligible ? "ADMISSION_ALLOWED" : eligibility.reasonCode);
+        const message = alreadyCheckedIn
+            ? "Participant has already checked in for this event."
+            : eligibility.message;
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                registrationId: registration._id.toString(),
+                participant: {
+                    fullName: registration.participantDetails?.fullName || "Participant",
+                    collegeName: registration.participantDetails?.collegeName || null,
+                    department: registration.participantDetails?.department || null,
+                    rollNumber: registration.participantDetails?.rollNumber || null,
+                    maskedMobile
+                },
+                registration: {
+                    registrationType: registration.team ? "TEAM" : "INDIVIDUAL",
+                    teamName: registration.team?.teamName || null,
+                    isTeamLeader: Boolean(registration.isTeamLeader),
+                    cohortType: isCombo ? "COMBO" : "DIRECT",
+                    comboName: isCombo && parentEvent ? parentEvent.name : null,
+                    paymentStatus
+                },
+                event: {
+                    id: targetEvent._id.toString(),
+                    name: targetEvent.name
+                },
+                eligibility: {
+                    isEntitled: eligibility.reasonCode !== "EVENT_NOT_ENTITLED",
+                    paymentStatus,
+                    alreadyCheckedIn,
+                    checkedInAt,
+                    canCheckIn,
+                    reasonCode,
+                    message
+                }
+            }
         });
 
     } catch (error) {
-        console.error("Attendance error:", error);
-
+        console.error("Manual lookup error:", error);
         return res.status(500).json({
             success: false,
-            message: "Failed to mark attendance."
+            message: "Failed to look up registration."
+        });
+    }
+};
+
+/**
+ * Records verified manual attendance check-in for a participant at a specific venue.
+ * Enforces explicit organiser confirmation (identityConfirmed === true) and identical atomic admission rules.
+ * Route: POST /api/registrations/manual-attendance
+ */
+const markManualAttendance = async (req, res) => {
+    try {
+        const { registrationId, eventId, identityConfirmed } = req.body || {};
+
+        if (identityConfirmed !== true) {
+            return res.status(400).json({
+                success: false,
+                code: "IDENTITY_NOT_CONFIRMED",
+                message: "Organiser must physically verify participant identity and confirm check-in."
+            });
+        }
+
+        const cleanRegId = typeof registrationId === "string" ? registrationId.trim() : "";
+        if (!cleanRegId || !/^[a-f0-9]{24}$/i.test(cleanRegId) || !mongoose.isValidObjectId(cleanRegId)) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_REGISTRATION_ID",
+                message: "Invalid Registration ID format. Expected a 24-character hexadecimal ID."
+            });
+        }
+
+        if (!eventId || typeof eventId !== "string" || !mongoose.isValidObjectId(eventId.trim())) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_EVENT_ID",
+                message: "Invalid event ID format."
+            });
+        }
+
+        const cleanEventId = eventId.trim();
+
+        // 1. Fetch and validate target event
+        const targetEvent = await Event.findById(cleanEventId).select("name status organizers multiEventAccess");
+        if (!targetEvent) {
+            return res.status(404).json({
+                success: false,
+                code: "EVENT_NOT_FOUND",
+                message: "Target event not found."
+            });
+        }
+
+        // Reject Combo Pass parents
+        if (Boolean(targetEvent.multiEventAccess?.enabled)) {
+            return res.status(400).json({
+                success: false,
+                code: "COMBO_PARENT_NOT_VENUE",
+                message: "Multi-Event Packages are registration bundles and cannot be used as scanning or check-in venues. Please select an included physical event venue."
+            });
+        }
+
+        // 2. Organiser scoping check
+        if (req.user && req.user.role === "ORGANISER") {
+            if (Array.isArray(targetEvent.organizers) && targetEvent.organizers.length > 0) {
+                const isAssigned = targetEvent.organizers.some(
+                    orgId => orgId.toString() === req.user._id.toString()
+                );
+                if (!isAssigned) {
+                    return res.status(403).json({
+                        success: false,
+                        code: "ORGANISER_NOT_ASSIGNED",
+                        message: "You are not authorized to record attendance for this event."
+                    });
+                }
+            }
+        }
+
+        // 3. Query the exact registration record
+        const registration = await Registration.findById(cleanRegId)
+            .populate("event", "name status multiEventAccess")
+            .populate({
+                path: "team",
+                select: "status payment event",
+                populate: { path: "event", select: "name status organizers" }
+            });
+
+        if (!registration) {
+            return res.status(404).json({
+                success: false,
+                code: "REGISTRATION_NOT_FOUND",
+                message: "Registration not found."
+            });
+        }
+
+        // 4. Resolve effective access snapshot
+        let effectiveAccess;
+        try {
+            effectiveAccess = resolveEffectiveAccess(registration);
+        } catch (accessErr) {
+            return res.status(400).json({
+                success: false,
+                code: "INVALID_ACCESS_SNAPSHOT",
+                message: accessErr.message || "Invalid registration access snapshot."
+            });
+        }
+
+        // 5. Entitlement check
+        const targetEventIdStr = targetEvent._id.toString();
+        const isEntitled = effectiveAccess.eligibleEventIds.some(
+            eligibleId => eligibleId.toString() === targetEventIdStr
+        );
+        if (!isEntitled) {
+            return res.status(403).json({
+                success: false,
+                code: "EVENT_NOT_ENTITLED",
+                message: "Ticket is not valid for this event."
+            });
+        }
+
+        // 6. Execute atomic check-in via shared engine
+        const result = await executeAdmissionCheckIn({
+            registration,
+            targetEvent,
+            effectiveAccess,
+            user: req.user,
+            checkInMethod: "MANUAL_REG_ID"
+        });
+
+        return res.status(result.statusCode).json(result.body);
+
+    } catch (error) {
+        console.error("Manual attendance error:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to record manual attendance."
         });
     }
 };
@@ -2006,6 +2367,8 @@ module.exports = {
     getRegistrationById,
     updatePaymentStatus,
     markAttendance,
+    lookupRegistrationForManualCheckIn,
+    markManualAttendance,
     getEventAttendanceReport,
     exportEventParticipants,
     issueEventCertificates,

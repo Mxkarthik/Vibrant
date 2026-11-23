@@ -11,6 +11,8 @@ const {
     getRegistrationById,
     updatePaymentStatus,
     markAttendance,
+    lookupRegistrationForManualCheckIn,
+    markManualAttendance,
     uploadRegistrationPaymentProof
 } = require("../controllers/registrationController");
 
@@ -33,6 +35,20 @@ router.post(
     protect,
     authorizeRoles("ADMIN", "ORGANISER"),
     markAttendance
+);
+
+router.post(
+    "/manual-lookup",
+    protect,
+    authorizeRoles("ADMIN", "ORGANISER"),
+    lookupRegistrationForManualCheckIn
+);
+
+router.post(
+    "/manual-attendance",
+    protect,
+    authorizeRoles("ADMIN", "ORGANISER"),
+    markManualAttendance
 );
 
 // Admin: verify or reject payment

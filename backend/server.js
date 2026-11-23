@@ -15,10 +15,10 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 
 const defaultOrigins = isProduction
-    ? ["https://dietvibrant.vercel.app", "https://vibrant-orcin.vercel.app"]
-    : ["http://localhost:5173", "http://localhost:5174"];
+    ? ["https://dietvibrant.vercel.app", "https://vibrant-orcin.vercel.app", "https://dietvibrant-organiser.vercel.app"]
+    : ["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"];
 
-const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_FRONTEND_URL]
+const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_FRONTEND_URL, process.env.ORGANISER_FRONTEND_URL]
     .filter(Boolean)
     .join(",")
     .split(",")
