@@ -190,6 +190,27 @@ const eventSchema = new mongoose.Schema(
                     ref: "Event"
                 }
             ]
+        },
+
+        // Hackathon domain pool lifecycle. Publication and draw are separate states.
+        // Mutating a published pool and enforcing lifecycle transitions require services.
+        domainConfig: {
+            enabled: { type: Boolean, default: false },
+            visibility: {
+                type: String,
+                enum: ["PRIVATE", "PUBLIC"],
+                default: "PRIVATE"
+            },
+            drawStatus: {
+                type: String,
+                enum: ["CLOSED", "OPEN"],
+                default: "CLOSED"
+            },
+            publishedAt: { type: Date, default: null },
+            drawOpenedAt: { type: Date, default: null },
+            drawClosedAt: { type: Date, default: null },
+            // Incremented by the future publication service when freezing a pool.
+            poolVersion: { type: Number, min: 0, default: 0 }
         }
     },
     {
@@ -199,6 +220,11 @@ const eventSchema = new mongoose.Schema(
 
 
 eventSchema.pre("validate", function () {
+    if (this.domainConfig?.drawStatus === "OPEN" &&
+        (this.domainConfig.enabled !== true || this.domainConfig.visibility !== "PUBLIC" || !this.domainConfig.publishedAt)) {
+        this.invalidate("domainConfig.drawStatus", "Domain draw requires an enabled feature and published public pool");
+    }
+
     // 1. Validate event dates
     if (this.startDate && this.endDate) {
         if (this.endDate < this.startDate) {

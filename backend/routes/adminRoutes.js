@@ -20,12 +20,14 @@ const {
     getEligibleMultiAccessEvents
 } = require("../controllers/adminController");
 const { issueIndividualCertificate } = require("../controllers/registrationController");
+const domainAdminRoutes = require("./domainAdminRoutes");
 
 // All routes require ADMIN authentication
 router.use(protect, authorizeRoles("ADMIN"));
 
 router.get("/dashboard", getDashboard);
 router.get("/events", getAllAdminEvents);
+router.use("/events/:eventId/domains", domainAdminRoutes);
 router.get("/events/eligible-multi-access", getEligibleMultiAccessEvents);
 router.get("/events/:id/attendance", getAdminEventAttendance);
 router.get("/events/:id/certificates", getEventCertificates);
