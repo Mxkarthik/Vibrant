@@ -1,6 +1,16 @@
 # Domain lottery Participant Backend contract
 
-This contract is for the later Participant Backend phase. Phases 04C and 04E add Admin revision and recovery.
+Phase 05A provides read-only participant status. Phase 05B adds the participant draw. Phases 04C and 04E provide Admin revision and recovery.
+
+## Phase 05A eligibility and identity
+
+- The new route requires the existing `protect` middleware and permits `PARTICIPANT` or `ADMIN` roles for the four lottery routes. `protect` verifies the cookie or bearer token and loads the active User from the database. The existing dashboard's broader portal-role policy stays in place.
+- Look up registrations by `Registration.user` and either their physical event or a stored child entitlement. The partial unique index on `(event, user)` covers account-linked registrations for a single source event. It cannot resolve overlaps between a direct entry and a Combo Pass entry. Reject multiple distinct eligible keys with `DOMAIN_ENTRY_AMBIGUOUS`. Multiple records resolving to the same eligible key count once.
+- Individual identity comes from the eligible `Registration._id`. A team row must reference a Team attached to the same source event, and both the target and source event modes must match the entry type. Team identity comes from `Team._id`. Only the account in `Team.leader` can initiate a draw. Account-linked member rows can see the shared status. Current team registration sets `Registration.user` for the leader only, leaving other member rows unlinked. Unlinked members cannot authenticate through those rows.
+- Use the saved `MULTI_EVENT` entitlement and verify the registration's source is a Combo Pass parent. Existing snapshots determine the entitled child IDs, including when a parent's current child list differs. Legacy rows without a snapshot get access to their own source event only. The assignment lookup always uses the target child event with the original registration or team key. A Combo Pass parent cannot be a lottery target.
+- Reuse `resolveRegistrationAdmissionEligibility`. Registration and, for a team, Team must be `REGISTERED`. Individual payment comes from Registration. Shared payment comes from Team. The existing policy accepts `VERIFIED` and `NOT_REQUIRED`, including its legacy missing-status fallback. Pending, rejected and unsupported payment states deny access. A cancelled target or source denies eligibility. A completed target can retain eligible status and READ access but cannot authorize a new draw. There is no attendance or check-in requirement.
+- Status returns a fixed set of flags, an event ID, entry type and safe reason text. Ineligible users receive no lottery visibility, draw state, or assignment information. Legacy `PUBLIC` grants neither draw nor whole-bank READ permission. The route uses `Cache-Control: no-store`.
+- Resolve existing assignments by event, entry type and entry ID. Validate the referenced snapshot in the version 1 or later-version collection and compare the stored copy to that snapshot's selected domain. An older valid assignment stays locked. An invalid reference fails without exposing content. For new draws and whole-bank READ eligibility, active publication requires the exact published version. A reset draft has no active snapshot.
 
 ## Entry identity and authorization
 
@@ -11,16 +21,57 @@ This contract is for the later Participant Backend phase. Phases 04C and 04E add
 
 ## Draw transaction
 
-The draw operation must call `withDomainPoolLock(eventId, operation)` and use the provided MongoDB session for every read and write in the operation.
+The existing `DomainAssignment` schema stores `event`, `entryType` (`INDIVIDUAL` or `TEAM`), `entry`, `domain`, `initiatedBy` (the authenticated User ID), `assignedAt`, `poolVersion`, and immutable `contentSnapshot` fields. Its unique index, `uniq_domain_assignment_event_entry`, covers `(event, entryType, entry)` across all pool versions. The active snapshot loader selects the exact event and published version, dispatches to the legacy or versioned collection, and checks the publication timestamp and content hash.
+
+Phase 05B calls `withDomainPoolLock(eventId, operation)`. The coordinator writes the event lock first, supplies the session to the callback, and returns the result after a majority commit. The Phase 05A resolver supplies the authorized entry, leader permission, existing validated assignment, and verified active snapshot when a draw is permitted. Recheck all of these inside the transaction. Non-lottery event, payment and registration mutations do not acquire the domain lock. The Phase 04F replica-set pass remains a prerequisite for deploying lottery writes.
+
+The backend's CORS middleware rejects unknown Origins but allows missing Origin for server-to-server traffic. The draw route requires an explicitly allowlisted Origin when the auth cookie is used, including when a Bearer header is also present. Bearer-only requests can omit Origin. The route requires an empty JSON object, rejects query parameters, and marks responses `no-store`.
 
 1. Resolve and authorize the current participant's registration or team.
-2. Look up `(event, entryType, entry)`. If an assignment already exists, return it unchanged, even if the lottery is now closed.
-3. For a new assignment only, require `domainConfig.enabled === true`, `drawStatus === "OPEN"`, `visibility === "PRIVATE"`, and an active published snapshot. Load the event and call `loadActiveSnapshot(event, session)` inside the lock.
-4. Select randomly on the server from the returned snapshot's `domains`. An event-only snapshot lookup, a highest-version lookup, or reading `EventDomain` could select an obsolete snapshot or editable drafts.
+2. Look up `(event, entryType, entry)`. Return a valid existing assignment to the authorized entry, including account-linked team members, even after Close, READ, or completion. Ineligible users never receive its contents.
+3. For a new assignment, require an eligible individual or team leader, a published event, `domainConfig.enabled === true`, `drawStatus === "OPEN"`, `visibility === "PRIVATE"`, and a valid active snapshot loaded with the same session.
+4. Use `crypto.randomInt(0, domains.length)` on the returned snapshot. Validate candidate IDs and content before selecting. An event-only snapshot lookup, a highest-version lookup, or reading `EventDomain` could select an obsolete snapshot or editable drafts.
 5. Create one `DomainAssignment` with the chosen domain ID, the exact frozen title/problem/instructions in `contentSnapshot`, the event pool version, and the authorized entry identity.
 6. If the unique `(event, entryType, entry)` index rejects a concurrent duplicate, read and return the committed winner. Do not redraw or overwrite it.
 
 The assignment collection intentionally allows many entries to reference the same domain. The unique key prevents separate assignments for one team in one event.
+
+The coordinator may rerun the callback after a known transient abort. Every rerun re-resolves eligibility, any existing assignment, and the active publication before a new selection. An assignment insert that reports a duplicate key aborts without entering the coordinator's retry loop. For that conflict or an unknown commit, the draw service re-resolves authorization, looks up the exact attempted entry with majority read concern, and returns a verified winner as HTTP 200 if present. Reconciliation performs only reads. An unresolved duplicate returns `409 DOMAIN_ASSIGNMENT_CONFLICT`. An unresolved commit returns `503 DOMAIN_COMMIT_UNKNOWN`.
+
+### Postman against an isolated development backend
+
+Set `BASE_URL=http://localhost:5000` and `EVENT_ID` to a disposable event. Use an eligible participant's Bearer token. If using a participant cookie, set `Origin` to a configured frontend origin such as `http://localhost:5173` under the default development configuration.
+
+```http
+POST {{BASE_URL}}/api/participant/events/{{EVENT_ID}}/domains/draw
+Content-Type: application/json
+Authorization: Bearer {{PARTICIPANT_TOKEN}}
+
+{}
+```
+
+For a first successful draw, expect HTTP 201 with this shape:
+
+```json
+{
+  "success": true,
+  "message": "Theme assigned and locked.",
+  "data": {
+    "eventId": "0123456789abcdef01234567",
+    "hasAssignment": true,
+    "isLocked": true,
+    "alreadyAssigned": false,
+    "theme": {
+      "title": "Smart Agriculture",
+      "problemStatement": "Build a crop monitoring prototype.",
+      "instructions": "Present a working demo."
+    },
+    "assignedAt": "2026-11-27T00:00:00.000Z"
+  }
+}
+```
+
+Repeat to expect HTTP 200 with `alreadyAssigned: true`, message `Your entry already has a locked theme.`, and the original theme and timestamp. Repeat after Close to verify retrieval. An unassigned entry after Close gets `409 DOMAIN_LOTTERY_NOT_OPEN`. An unassigned team member gets `403 TEAM_LEADER_REQUIRED`. Use separate eligible entries to check individual and child-event assignment, and verify that different teams can receive the same theme. Use the status route for an advisory check before retrying an unresolved commit. Only run these writes on isolated test records.
 
 ## Close ordering
 
@@ -28,7 +79,39 @@ The draw transaction and Admin close operation must use the same event lock. If 
 
 ## READ access
 
-After `visibility === "READABLE"`, a future authenticated event-eligible read endpoint may return the frozen domains from `loadActiveSnapshot(event)`. Recheck visibility and the active version on every request, and serve the response without caching protected contents. A reset revokes access for future requests. Information already disclosed can remain with its recipients. READ access must not return editable `EventDomain` records or change any assignment.
+Both Phase 05C read routes require the existing `protect` middleware and permit `PARTICIPANT` or `ADMIN` roles. Entry ownership and eligibility still apply to both roles. They set `Cache-Control: no-store` and accept no caller-supplied entry, team, registration, domain, or pool identifiers.
+
+### `GET /api/participant/events/:eventId/domains/my-theme`
+
+Resolve the participant through the Phase 05A eligibility resolver, then look up the persisted assignment by `(event, entryType, entry)`. The individual key uses `Registration._id`; the team key uses `Team._id`. An authenticated account-linked team member and the leader resolve to the same team assignment. Combo Pass registrations resolve only to the entitled child event. The route does not require an open draw and never draws or writes.
+
+The response serializes only the immutable assignment content snapshot and original `assignedAt`. Before returning it, validate the assignment key and pool version, verify the referenced historical versioned snapshot and its hash, and ensure the assigned domain occurs exactly once with content matching the assignment snapshot. The assignment's pool version may be older than the current active version; a valid older assignment remains retrievable. Missing or inconsistent references return sanitized `409 DOMAIN_ASSIGNMENT_INTEGRITY_FAILED`.
+
+If an eligible entry has no assignment, return HTTP 200 with `hasAssignment: false`, `isLocked: false`, `theme: null`, and `assignedAt: null`. This response contains no draft or frozen-pool content. Ineligible entries follow Phase 05A errors and do not receive assignment details.
+
+### `GET /api/participant/events/:eventId/domains`
+
+Return HTTP 200 only when the participant is eligible, the event is eligible, domains are enabled, visibility is exactly `READABLE`, and `drawStatus` is `CLOSED`. Load the exact active snapshot through `loadActiveSnapshot(event)`, which verifies event, pool version, publication time, and content hash. Serialize only title, statement, and instructions; do not return IDs, hashes, historical pools, assignments, audits, or mutable draft records. Legacy `PUBLIC` remains denied.
+
+Before disclosing the result, re-read the event from the primary with linearizable read concern and a bounded timeout. Compare eligibility, registration mode, READABLE/CLOSED state, pool version, publication time, and pending revision state with the validated snapshot. If reset or another state change has committed before this final check, deny the request; if the authoritative read fails, return sanitized `503 DOMAIN_BANK_CHECK_UNAVAILABLE`. A change committed after this final check is concurrent with the GET; the response is authorized at that check's linearization point. A reset revokes access for later checks, but information already disclosed cannot be recalled. The route never acquires a write lock or changes assignments.
+
+Example no-assignment response:
+
+```json
+{"success":true,"data":{"eventId":"0123456789abcdef01234567","hasAssignment":false,"isLocked":false,"theme":null,"assignedAt":null}}
+```
+
+Example READABLE response:
+
+```json
+{"success":true,"data":{"eventId":"0123456789abcdef01234567","visibility":"READABLE","domains":[{"title":"Smart Agriculture","problemStatement":"Build a crop monitoring prototype.","instructions":"Present a working demo."}],"total":1}}
+```
+
+### Isolated Postman checks
+
+Set `BASE_URL=http://localhost:5000`, `EVENT_ID` to a disposable event, and authenticate as an eligible participant. A successful no-assignment request returns HTTP 200 and the null-theme shape above. An assigned request returns HTTP 200 with `hasAssignment: true`, `isLocked: true`, the original theme and timestamp; repeat the request after closing the draw to confirm they remain unchanged. An ineligible or ambiguous entry receives a sanitized 4xx error.
+
+For the full-bank route, check a private draft, private open/frozen pool, legacy `PUBLIC`, reset draft, or readable/open state: each is denied with HTTP 403 `DOMAIN_BANK_UNAVAILABLE` and no `data`. After Admin closes the draw and enables READ, an eligible participant receives the complete active frozen list and matching `total`. A read racing with a committed reset is denied; an authoritative read failure returns HTTP 503. Use disposable local records only; these GET requests do not write assignments.
 
 ## Admin pool revision
 

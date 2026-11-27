@@ -9,6 +9,9 @@ const DomainAssignment = require("../models/DomainAssignment");
 const DomainPoolCoordination = require("../models/DomainPoolCoordination");
 const DomainPoolSnapshot = require("../models/DomainPoolSnapshot");
 const DomainAdminAudit = require("../models/DomainAdminAudit");
+const Registration = require("../models/Registration");
+const Team = require("../models/Team");
+const { drawParticipantDomain } = require("../services/participantDomainDrawService");
 const controller = require("../controllers/domainAdminController");
 const { withDomainPoolLock } = require("../services/domainPoolCoordinator");
 const service = require("../services/domainAdminService");
@@ -66,6 +69,20 @@ function draw(id, entryType, entry = new mongoose.Types.ObjectId()) {
     });
 }
 
+async function participantFixture(eventId, name) {
+    const authenticatedUser = { _id: new mongoose.Types.ObjectId(), role: "PARTICIPANT", isActive: true };
+    const team = await Team.create({
+        event: eventId, teamName: name, leader: authenticatedUser._id, memberCount: 2,
+        payment: { status: "NOT_REQUIRED" }
+    });
+    await Registration.create({
+        event: eventId, user: authenticatedUser._id, team: team._id, isTeamLeader: true,
+        participantDetails: { fullName: name, mobileNumber: "9999999999", collegeName: "Fixture",
+            department: "CSM", section: "A", yearOfStudy: "2", rollNumber: name }
+    });
+    return { team, pick: () => drawParticipantDomain({ eventId, authenticatedUser }) };
+}
+
 describe("Domain pool revision and recovery on an isolated MongoDB replica set", {
     skip: uri ? false : "set DOMAIN_REVISION_REPLICA_URI to a dedicated loopback replica set"
 }, () => {
@@ -89,13 +106,85 @@ describe("Domain pool revision and recovery on an isolated MongoDB replica set",
         const { databases } = await mongoose.connection.db.admin().listDatabases({ nameOnly: true, authorizedDatabases: false });
         assert.deepEqual(databases.map(database => database.name).filter(name => !["admin", "config", "local"].includes(name)), [],
             "Test writes require a fresh disposable server with no application databases");
-        for (const model of [Event, EventDomain, DomainAssignment, DomainPoolCoordination, DomainPoolSnapshot, versions, DomainAdminAudit]) {
+        for (const model of [Event, EventDomain, DomainAssignment, DomainPoolCoordination, DomainPoolSnapshot, versions,
+            DomainAdminAudit, Registration, Team]) {
             await model.createCollection();
             await model.createIndexes();
         }
     });
 
     after(async () => { await mongoose.disconnect(); });
+
+    it("persists one actual participant draw across simultaneous sessions and lets other teams receive the same theme", async () => {
+        const { id } = await fixture({ close: false });
+        const { pick, team } = await participantFixture(id, "First team");
+        const results = await Promise.all([pick(), pick()]);
+        assert.deepEqual(results.map(result => result.alreadyAssigned).sort(), [false, true]);
+        assert.deepEqual(results[0].theme, results[1].theme);
+        assert.equal(+results[0].assignedAt, +results[1].assignedAt);
+        assert.equal(await DomainAssignment.countDocuments({ event: id, entryType: "TEAM", entry: team._id }), 1);
+        const other = await participantFixture(id, "Other team");
+        assert.deepEqual((await other.pick()).theme, results[0].theme);
+        await service.closeDraw(id, "frozen:1");
+        const state = await service.getLifecycleStatus(id);
+        await assert.rejects(service.resetToDraft(id, adminId, "Assigned", state.coordinationVersion), { code: "DOMAIN_HAS_ASSIGNMENTS" });
+        assert.deepEqual((await pick()).theme, results[0].theme);
+        assert.equal(await DomainAssignment.countDocuments({ event: id }), 2);
+    });
+
+    it("serializes the actual participant draw against Close", async () => {
+        const { id } = await fixture({ close: false });
+        const { pick } = await participantFixture(id, "Close race");
+        const [drawResult, closeResult] = await Promise.allSettled([pick(), service.closeDraw(id, "frozen:1")]);
+        assert.equal(closeResult.status, "fulfilled");
+        assert.equal((await service.getLifecycleStatus(id)).drawStatus, "CLOSED");
+        assert.equal(await DomainAssignment.countDocuments({ event: id }), drawResult.status === "fulfilled" ? 1 : 0);
+        if (drawResult.status === "fulfilled") assert.deepEqual((await pick()).theme, drawResult.value.theme);
+        else assert.equal(drawResult.reason.code, "DOMAIN_LOTTERY_NOT_OPEN");
+    });
+
+    for (const action of ["reset", "revision"]) {
+        it(`does not draw from the historic pool during Admin ${action} and uses version two after publishing`, async () => {
+            const { id, draft } = await fixture();
+            const { pick } = await participantFixture(id, action);
+            const state = await service.getLifecycleStatus(id);
+            const historical = await DomainPoolSnapshot.findOne({ event: id }).lean();
+            const [drawResult, recovery] = await Promise.allSettled([
+                pick(), action === "reset"
+                    ? service.resetToDraft(id, adminId, "Update draft", state.coordinationVersion)
+                    : service.revisePool(id, "frozen:1")
+            ]);
+            assert.equal(recovery.status, "fulfilled");
+            assert.equal(drawResult.reason.code, "DOMAIN_LOTTERY_NOT_OPEN");
+            assert.equal(await DomainAssignment.countDocuments({ event: id }), 0);
+            await service.updateDomain(id, draft._id, adminId, { title: "Replacement theme" });
+            await service.openDraw(id, adminId, "draft:1");
+            assert.equal((await pick()).theme.title, "Replacement theme");
+            assert.equal((await DomainAssignment.findOne({ event: id })).poolVersion, 2);
+            assert.deepEqual(await DomainPoolSnapshot.findOne({ event: id }).lean(), historical);
+            assert.equal(await DomainAdminAudit.countDocuments({ event: id }), action === "reset" ? 1 : 0);
+        });
+    }
+
+    for (const transient of [false, true]) {
+        it(`verifies actual rollback ${transient ? "and retries a transient failure" : "after a failed assignment insert transaction"}`, async t => {
+            const { id } = await fixture({ close: false });
+            const { pick } = await participantFixture(id, `Rollback ${transient}`);
+            const create = DomainAssignment.create.bind(DomainAssignment);
+            let attempts = 0;
+            t.mock.method(DomainAssignment, "create", async (...args) => {
+                const result = await create(...args);
+                if (++attempts === 1) throw Object.assign(new Error("Fixture abort"), {
+                    hasErrorLabel: label => transient && label === "TransientTransactionError"
+                });
+                return result;
+            });
+            if (transient) assert.equal((await pick()).alreadyAssigned, false);
+            else await assert.rejects(pick(), /Fixture abort/);
+            assert.equal(await DomainAssignment.countDocuments({ event: id }), transient ? 1 : 0);
+            assert.equal(attempts, transient ? 2 : 1);
+        });
+    }
 
     it("verifies actual MongoDB index keys and uniqueness", async t => {
         const expected = [

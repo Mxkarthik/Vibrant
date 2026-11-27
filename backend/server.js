@@ -26,6 +26,7 @@ const customOrigins = [process.env.ADMIN_FRONTEND_URL, process.env.PARTICIPANT_F
     .filter(Boolean);
 
 const configuredOrigins = Array.from(new Set([...defaultOrigins, ...customOrigins]));
+app.set("trustedFrontendOrigins", configuredOrigins);
 const cookieSameSite = (process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax")).toLowerCase();
 
 app.use(cors({
@@ -94,6 +95,12 @@ app.use("/api/participant", participantRoutes);
 app.use((error, req, res, next) => {
     if (error.message === "Origin is not allowed by CORS") {
         return res.status(403).json({ success: false, message: "Origin is not allowed" });
+    }
+    if (error.type === "entity.parse.failed" && req.method === "POST" &&
+        /^\/api\/participant\/events\/[^/]+\/domains\/draw\/?$/i.test(req.path)) {
+        return res.set("Cache-Control", "no-store").status(400).json({
+            success: false, code: "INVALID_DOMAIN_INPUT", message: "Send an empty JSON object."
+        });
     }
     return next(error);
 });
