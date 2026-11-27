@@ -3,6 +3,7 @@ import axios from "axios";
 import { Link, useParams } from "react-router-dom";
 import { getEventDetails, type EventDetails, type EventRegistrationField } from "../api/eventService";
 import { existingRegistrationPath, getEventRegistrationState, useMyRegistrations } from "../hooks/useMyRegistrations";
+import DomainLotteryPanel from "../components/domain-lottery/DomainLotteryPanel";
 
 const categoryLabels: Record<string, string> = {
   TECHNICAL: "Technical",
@@ -89,6 +90,8 @@ export default function EventDetailsPage() {
         </div>
 
         <section className="event-detail-section"><p className="participant-eyebrow">ABOUT THE EVENT</p><h2>Event overview</h2><p className="event-detail-description">{event.description || "Event description is not available."}</p></section>
+
+        <DomainLotteryPanel key={event._id} eventId={event._id} />
 
         {isCombo && (
           <section className="event-detail-section event-detail-combo-section" aria-label="Included events in combo pass">
