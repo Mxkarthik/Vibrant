@@ -13,6 +13,7 @@ import OrganisersPage from "./pages/admin/OrganisersPage";
 import AttendancePage from "./pages/admin/AttendancePage";
 import CertificatesPage from "./pages/admin/CertificatesPage";
 import AccountSettingsPage from "./pages/admin/AccountSettingsPage";
+import DomainsPage from "./pages/admin/DomainsPage";
 
 export default function App() {
   return <Routes>
@@ -22,6 +23,7 @@ export default function App() {
       <Route path="/admin/events" element={<EventsPage />} />
       <Route path="/admin/events/new" element={<CreateEventPage />} />
       <Route path="/admin/events/:id/edit" element={<EditEventPage />} />
+      <Route path="/admin/events/:id/domains" element={<DomainsPage />} />
       <Route path="/admin/events/:id" element={<EventDetailsPage />} />
       <Route path="/admin/participants" element={<ParticipantsPage />} />
       <Route path="/admin/payments" element={<PaymentsPage />} />

@@ -49,6 +49,15 @@ describe("Hackathon domain database foundation", () => {
         await assert.doesNotReject(event.validate());
     });
 
+    it("supports READABLE as a final visibility state but rejects an open readable draw", async () => {
+        const event = new Event(eventData({ domainConfig: {
+            enabled: true, visibility: "READABLE", drawStatus: "CLOSED", publishedAt: new Date()
+        } }));
+        await assert.doesNotReject(event.validate());
+        event.domainConfig.drawStatus = "OPEN";
+        await assert.rejects(event.validate(), /not read-enabled/);
+    });
+
     it("accepts valid event domains and trims bounded text", async () => {
         const domain = new EventDomain({
             event: makeId(), title: "  Civic Tech  ", problemStatement: "  Build a useful tool.  ",

@@ -198,7 +198,10 @@ const eventSchema = new mongoose.Schema(
             enabled: { type: Boolean, default: false },
             visibility: {
                 type: String,
-                enum: ["PRIVATE", "PUBLIC"],
+                // PUBLIC is retained for compatibility with the Phase 01 enum.
+                // New lifecycle transitions use PRIVATE until the draw is closed,
+                // then READABLE. No participant route reads legacy PUBLIC values.
+                enum: ["PRIVATE", "PUBLIC", "READABLE"],
                 default: "PRIVATE"
             },
             drawStatus: {
@@ -207,10 +210,14 @@ const eventSchema = new mongoose.Schema(
                 default: "CLOSED"
             },
             publishedAt: { type: Date, default: null },
+            publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
             drawOpenedAt: { type: Date, default: null },
             drawClosedAt: { type: Date, default: null },
-            // Incremented by the future publication service when freezing a pool.
-            poolVersion: { type: Number, min: 0, default: 0 }
+            readEnabledAt: { type: Date, default: null },
+            readEnabledBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+            // Last frozen version. Clearing the active publication does not rewind it.
+            poolVersion: { type: Number, min: 0, default: 0 },
+            revisionPending: { type: Boolean, default: false }
         }
     },
     {
@@ -221,8 +228,8 @@ const eventSchema = new mongoose.Schema(
 
 eventSchema.pre("validate", function () {
     if (this.domainConfig?.drawStatus === "OPEN" &&
-        (this.domainConfig.enabled !== true || this.domainConfig.visibility !== "PUBLIC" || !this.domainConfig.publishedAt)) {
-        this.invalidate("domainConfig.drawStatus", "Domain draw requires an enabled feature and published public pool");
+        (this.domainConfig.enabled !== true || this.domainConfig.visibility === "READABLE" || !this.domainConfig.publishedAt)) {
+        this.invalidate("domainConfig.drawStatus", "Domain draw requires an enabled feature and a published pool that is not read-enabled");
     }
 
     // 1. Validate event dates

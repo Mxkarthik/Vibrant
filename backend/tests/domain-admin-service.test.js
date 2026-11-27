@@ -13,7 +13,10 @@ const service = require("../services/domainAdminService");
 
 function fakeSession() {
     return {
-        withTransaction: async callback => callback(),
+        startTransaction() {},
+        async commitTransaction() {},
+        inTransaction: () => true,
+        async abortTransaction() {},
         endSession: async () => {}
     };
 }
@@ -102,7 +105,7 @@ describe("Admin domain service lifecycle guards (transaction mocked; no MongoDB)
         const combo = fakeEvent({ enabled: true });
         combo.multiEventAccess.enabled = true;
         await withDatabaseStubs(t, { event: combo }, async () => {
-            await assert.rejects(service.createDomain(combo._id, adminId, { title: "X", problemStatement: "Y" }), e => e.code === "INELIGIBLE_EVENT");
+            await assert.rejects(service.createDomain(combo._id, adminId, { title: "X", problemStatement: "Y" }), e => e.code === "EVENT_NOT_ELIGIBLE");
         });
     });
 

@@ -3,7 +3,8 @@
 const mongoose = require("mongoose");
 const service = require("../services/domainAdminService");
 const {
-    validateObjectId, validateConfigBody, validateDomainBody, validatePagination
+    validateObjectId, validateConfigBody, validateEmptyBody, validateExpectedPool, validateDomainBody, validatePagination,
+    validateRecoveryBody, validateCoordinationVersion
 } = require("../utils/domainAdminValidation");
 
 function configPayload(event) {
@@ -13,9 +14,13 @@ function configPayload(event) {
         visibility: config.visibility || "PRIVATE",
         drawStatus: config.drawStatus || "CLOSED",
         publishedAt: config.publishedAt || null,
+        publishedBy: config.publishedBy || null,
         drawOpenedAt: config.drawOpenedAt || null,
         drawClosedAt: config.drawClosedAt || null,
-        poolVersion: config.poolVersion || 0
+        readEnabledAt: config.readEnabledAt || null,
+        readEnabledBy: config.readEnabledBy || null,
+        poolVersion: config.poolVersion || 0,
+        revisionPending: config.revisionPending === true
     };
 }
 
@@ -94,4 +99,69 @@ const deleteDomain = withErrors(async (req, res) => {
     return res.status(200).json({ success: true, message: "Domain deleted successfully" });
 });
 
-module.exports = { updateDomainConfig, createDomain, listDomains, getDomain, updateDomain, deleteDomain };
+const openDomainDraw = withErrors(async (req, res) => {
+    validateObjectId(req.params.eventId, "event ID");
+    validateEmptyBody(req.body);
+    const { event, snapshot } = await service.openDraw(req.params.eventId, req.user._id, validateExpectedPool(req.query?.poolState));
+    return res.status(200).json({
+        success: true,
+        message: "Domain lottery opened",
+        data: { eventId: event._id.toString(), ...configPayload(event), publishedDomainCount: snapshot.domains.length }
+    });
+});
+
+const closeDomainDraw = withErrors(async (req, res) => {
+    validateObjectId(req.params.eventId, "event ID");
+    validateEmptyBody(req.body);
+    const event = await service.closeDraw(req.params.eventId, validateExpectedPool(req.query?.poolState));
+    return res.status(200).json({ success: true, message: "Domain lottery closed", data: { eventId: event._id.toString(), ...configPayload(event) } });
+});
+
+const enableDomainRead = withErrors(async (req, res) => {
+    validateObjectId(req.params.eventId, "event ID");
+    validateEmptyBody(req.body);
+    const event = await service.enableRead(req.params.eventId, req.user._id, validateExpectedPool(req.query?.poolState));
+    return res.status(200).json({ success: true, message: "Domain read access enabled", data: { eventId: event._id.toString(), ...configPayload(event) } });
+});
+
+const reviseDomainPool = withErrors(async (req, res) => {
+    validateObjectId(req.params.eventId, "event ID");
+    validateEmptyBody(req.body);
+    const event = await service.revisePool(req.params.eventId, validateExpectedPool(req.query?.poolState));
+    return res.status(200).json({
+        success: true,
+        message: "Domain pool returned to private draft",
+        data: { eventId: event._id.toString(), ...configPayload(event) }
+    });
+});
+
+const getDomainLifecycleStatus = withErrors(async (req, res) => {
+    validateObjectId(req.params.eventId, "event ID");
+    const data = await service.getLifecycleStatus(req.params.eventId);
+    return res.status(200).json({ success: true, data });
+});
+
+function recoveryAction(confirmation, mutate, message) {
+    return withErrors(async (req, res) => {
+        const { eventId } = req.params;
+        validateObjectId(eventId, "event ID");
+        const reason = validateRecoveryBody(req.body, confirmation, { reasonRequired: confirmation === "RESET_TO_DRAFT" });
+        const version = validateCoordinationVersion(req.query?.coordinationVersion);
+        const { event, status, audit } = await mutate(eventId, req.user._id, reason, version);
+        return res.status(200).json({
+            success: true, message,
+            data: { ...status, domainConfig: configPayload(event), audit }
+        });
+    });
+}
+
+const resetLotteryToDraft = recoveryAction("RESET_TO_DRAFT", (...args) => service.resetToDraft(...args),
+    "Lottery reset to private draft");
+const clearDraftDomains = recoveryAction("CLEAR_DOMAINS", (...args) => service.clearDraftDomains(...args),
+    "Draft domains cleared");
+
+module.exports = {
+    updateDomainConfig, createDomain, listDomains, getDomain, updateDomain, deleteDomain,
+    openDomainDraw, closeDomainDraw, enableDomainRead, reviseDomainPool, getDomainLifecycleStatus,
+    resetLotteryToDraft, clearDraftDomains
+};

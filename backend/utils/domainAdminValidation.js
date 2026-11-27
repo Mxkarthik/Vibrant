@@ -25,6 +25,12 @@ function validateConfigBody(body) {
     }
 }
 
+function validateEmptyBody(body) {
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length !== 0) {
+        throw fail("Lifecycle actions accept an empty JSON object only");
+    }
+}
+
 function validateDomainBody(body, { partial = false } = {}) {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw fail("Request body must be an object");
     const allowed = new Set(["title", "problemStatement", "instructions"]);
@@ -53,4 +59,38 @@ function validatePagination(query) {
     return { page, limit };
 }
 
-module.exports = { LIMITS, validateObjectId, validateConfigBody, validateDomainBody, validatePagination };
+function validateExpectedPool(value) {
+    if (value === undefined) return undefined;
+    if (typeof value !== "string" || !/^(draft|frozen):(?:0|[1-9]\d{0,15})$/.test(value) ||
+        !Number.isSafeInteger(Number(value.split(":")[1]))) {
+        throw fail("poolState must identify a draft or frozen pool version");
+    }
+    return value;
+}
+
+function validateRecoveryBody(body, confirmation, { reasonRequired = false } = {}) {
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+        Object.keys(body).some(key => key !== "confirmation" && key !== "reason")) {
+        throw fail("Only confirmation and reason are accepted");
+    }
+    if (body.confirmation !== confirmation) {
+        throw fail(`Confirmation must match ${confirmation}`, "INVALID_CONFIRMATION");
+    }
+    const reason = body.reason === undefined ? "" : body.reason;
+    if (typeof reason !== "string" || reason.trim().length > 500 || (reasonRequired && !reason.trim())) {
+        throw fail(reasonRequired ? "Provide a reason of 1 to 500 characters" : "Reason must be at most 500 characters");
+    }
+    return reason.trim();
+}
+
+function validateCoordinationVersion(value) {
+    if (typeof value !== "string" || !/^(?:0|[1-9]\d{0,15})$/.test(value) || !Number.isSafeInteger(Number(value))) {
+        throw fail("coordinationVersion must match the current Admin domain status");
+    }
+    return Number(value);
+}
+
+module.exports = {
+    LIMITS, validateObjectId, validateConfigBody, validateEmptyBody, validateExpectedPool,
+    validateDomainBody, validatePagination, validateRecoveryBody, validateCoordinationVersion
+};

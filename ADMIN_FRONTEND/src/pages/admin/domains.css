@@ -1,0 +1,141 @@
+.domains-page{min-width:0}.domain-breadcrumb{margin:-6px 0 11px;color:#82919b;font-size:10px;font-weight:600;letter-spacing:.06em;overflow-wrap:anywhere}.domain-panel{padding:0 18px 18px;overflow:hidden}.domain-config-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 2px;border-bottom:1px solid var(--border)}.domain-config-row>div{display:flex;align-items:flex-start;gap:10px;min-width:0}.domain-icon{display:grid;place-items:center;width:34px;height:34px;flex:0 0 34px;border:1px solid #e5edf1;border-radius:8px;background:#f8fafb;color:#527187}.domain-config-row h2,.domain-bank-heading h2{margin:0;color:#243c4b;font:600 14px/1.4 'DM Sans',sans-serif}.domain-config-row p,.domain-bank-heading p{margin:4px 0 0;color:#718096;font-size:11px;line-height:1.55}.domain-switch{position:relative;width:42px;height:24px;flex:0 0 42px;padding:0;border:0;border-radius:20px;background:#c9d0d5;cursor:pointer}.domain-switch span{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:white;box-shadow:0 1px 4px #172b3a35;transition:transform .16s}.domain-switch.on{background:#5c4bff}.domain-switch.on span{transform:translateX(18px)}.domain-switch:disabled{opacity:.55;cursor:not-allowed}.domain-status-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;padding:13px 1px;border-bottom:1px solid var(--border)}.domain-status{display:flex;flex-direction:column;gap:5px;min-width:0;padding:9px 10px;border:1px solid #e9edf0;border-radius:7px;background:#fbfcfd}.domain-status small{color:#83919a;font-size:9px}.domain-status strong{color:#344b59;font-size:11px;font-weight:600;overflow-wrap:anywhere}.domain-private-note{display:flex;align-items:flex-start;gap:7px;margin:12px 1px 0;padding:10px 12px;border:1px solid #dce8f4;border-radius:7px;background:#f6f9fd;color:#46677e;font-size:10px;line-height:1.5}.domain-private-note svg{flex:0 0 auto}.domain-bank{padding-top:17px}.domain-bank-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.domain-search{display:flex;align-items:center;gap:7px;width:min(100%,245px);height:34px;padding:0 9px;border:1px solid var(--border);border-radius:6px;color:#82919b}.domain-search input{width:100%;min-width:0;border:0;outline:0;background:transparent;font:400 11px 'DM Sans',sans-serif}.domain-list{display:flex;flex-direction:column;gap:8px}.domain-row{display:flex;align-items:center;gap:12px;min-width:0;padding:12px 13px;border:1px solid #dfe7ee;border-radius:9px;background:#fff}.domain-copy{flex:1;min-width:0}.domain-copy h3{margin:0;color:#243c4b;font:600 12px/1.5 'DM Sans',sans-serif;overflow-wrap:anywhere}.domain-copy p{display:-webkit-box;margin:3px 0 0;overflow:hidden;color:#718096;font-size:10px;line-height:1.5;overflow-wrap:anywhere;-webkit-box-orient:vertical;-webkit-line-clamp:2}.domain-copy small{display:block;margin-top:5px;color:#95a0a7;font-size:9px}.domain-badge{flex:0 0 auto;padding:4px 8px;border-radius:14px;background:#f0f2f3;color:#53626a;font-size:9px;white-space:nowrap}.domain-badge.frozen{background:#eef3fa;color:#315b79}.domain-actions{display:flex;gap:3px;flex:0 0 auto}.domain-actions button{display:grid;place-items:center;width:32px;height:32px;border:1px solid transparent;border-radius:6px;background:transparent;color:#687e8c;cursor:pointer}.domain-actions button:hover:not(:disabled){border-color:#e5eaf0;background:#f6f8f9}.domain-actions button:disabled{opacity:.35;cursor:not-allowed}.domain-add{display:flex!important;justify-content:center;width:100%;min-height:43px!important;margin-top:11px;border-style:dashed!important;border-color:#b8b4ff!important;color:#5c4bff!important;background:white!important}.domain-empty{display:flex;flex-direction:column;align-items:center;padding:24px 14px;text-align:center;border:1px dashed #dce4e9;border-radius:8px;background:#fbfcfd;color:#71899a}.domain-empty h3{margin:9px 0 0;color:#344b59;font:600 12px 'DM Sans',sans-serif}.domain-empty p{max-width:390px;margin:5px 0 0;color:#84919a;font-size:10px;line-height:1.6}.domain-pagination{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 0;color:#82919b;font-size:10px}.domain-alert,.domain-notice{display:flex;align-items:center;justify-content:space-between;gap:9px;margin:0 0 11px;padding:10px 12px;border:1px solid #f0dfdf;border-radius:7px;background:#fbf3f3;color:#a44c4c;font-size:11px;line-height:1.5}.domain-alert button{display:grid;place-items:center;width:28px;height:28px;flex:0 0 28px;border:0;background:transparent;color:inherit}.domain-notice{justify-content:flex-start;border-color:#dceee5;background:#f2f8f5;color:#287b59}.domain-page-state{display:flex;min-height:240px;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#718096;font-size:12px;text-align:center}.domain-page-state p{max-width:420px;line-height:1.6}.domain-backdrop{position:fixed;inset:0;z-index:100;display:grid;place-items:center;padding:18px;background:#12202b80}.domain-modal{display:flex;flex-direction:column;width:min(100%,650px);max-height:min(92dvh,850px);overflow:hidden;border:1px solid var(--border);border-radius:11px;background:#fff;box-shadow:0 22px 70px #10202e35}.domain-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:17px 20px;border-bottom:1px solid var(--border)}.domain-modal>header small{color:#82919b;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;overflow-wrap:anywhere}.domain-modal>header h2{margin:3px 0 0;color:#263e4c;font:600 17px/1.4 'DM Sans',sans-serif;overflow-wrap:anywhere}.domain-modal>header button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:6px;background:transparent;color:#758793}.domain-modal form{overflow:auto;padding:16px 20px 20px}.domain-field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;color:#415866;font-size:11px;font-weight:600}.domain-field b{color:#a74343}.domain-field input,.domain-field textarea{width:100%;min-width:0;padding:10px 11px;border:1px solid var(--border);border-radius:6px;background:#fff;color:#344b59;font:400 12px/1.55 'DM Sans',sans-serif;resize:vertical}.domain-field textarea{min-height:82px}.domain-field small{align-self:flex-end;color:#95a0a7;font-size:9px;font-weight:400}.domain-modal form footer,.domain-view footer{display:flex;justify-content:flex-end;gap:8px;padding-top:8px}.domain-view-copy{overflow:auto;padding:18px 20px}.domain-view-copy h3{margin:0 0 7px;color:#415866;font:600 11px 'DM Sans',sans-serif}.domain-view-copy p{margin:0 0 18px;color:#344b59;font-size:12px;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}.domain-view-copy small{color:#89969f;font-size:10px}.domain-view footer{padding:0 20px 17px}.domain-skeleton{display:grid;gap:8px}.domain-skeleton i{height:56px;border:1px solid #e7edf1;border-radius:8px;background:linear-gradient(90deg,#f4f6f7 25%,#fafbfc 50%,#f4f6f7 75%);background-size:200% 100%;animation:skeleton-shimmer 1.5s ease-in-out infinite}
+@media(max-width:700px){.domain-panel{padding:0 12px 13px}.domain-config-row{padding:15px 1px}.domain-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.domain-bank-heading{align-items:flex-start;flex-direction:column}.domain-search{width:100%;max-width:none}.domain-row{align-items:flex-start;flex-wrap:wrap;gap:8px;padding:11px}.domain-copy{flex:1 1 calc(100% - 55px);order:1}.domain-badge{order:2;margin-left:auto}.domain-actions{order:3;width:100%;justify-content:flex-end;border-top:1px solid #f0f2f4;padding-top:5px}.domain-actions button{width:40px;height:38px}.domain-pagination{flex-wrap:wrap}.domain-pagination button{flex:1}.domain-backdrop{align-items:end;padding:0}.domain-modal{width:100%;max-height:94dvh;border-radius:14px 14px 0 0}.domain-modal>header,.domain-modal form{padding-left:16px;padding-right:16px}.domain-modal form{padding-bottom:calc(18px + env(safe-area-inset-bottom))}.domain-view-copy{padding:16px}.domain-view footer{padding:0 16px calc(15px + env(safe-area-inset-bottom))}.domain-modal form footer .ui-button{min-height:42px;flex:1}}
+
+.domain-lottery {
+  min-width: 0;
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px solid #e0e4f4;
+  border-radius: 9px;
+  background: #fafaff;
+  overflow-wrap: anywhere;
+}
+
+.domain-lottery-heading,
+.domain-lottery-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.domain-lottery h2 {
+  margin: 0;
+  color: #243c4b;
+  font: 600 14px/1.4 'DM Sans', sans-serif;
+}
+
+.domain-lottery-state {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #efedff;
+  color: #4837b5;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.domain-lottery p {
+  margin: 8px 0 0;
+  color: #526176;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.domain-lottery-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin: 12px 0 0;
+  color: #526176;
+  font-size: 11px;
+}
+
+.domain-lottery-details dd {
+  margin: 3px 0 0;
+  color: #243c4b;
+  font-weight: 600;
+}
+
+.domain-lottery-actions {
+  margin-top: 14px;
+}
+
+.domain-administrative {
+  background: #fff;
+}
+
+.domain-recovery-modal form > p {
+  margin: 0 0 14px;
+  color: #526176;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.domain-recovery-modal form > .domain-recovery-warning {
+  padding: 10px 12px;
+  border: 1px solid #f2dfbc;
+  border-radius: 7px;
+  background: #fffaee;
+  color: #704707;
+}
+
+.domain-recovery-modal footer {
+  flex-wrap: wrap;
+}
+
+.domain-recovery-modal form footer .ui-button {
+  min-height: 44px;
+  white-space: normal;
+}
+
+.domain-lottery-actions .ui-button,
+.domain-lifecycle-confirm .dialog-actions .ui-button {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  white-space: normal;
+}
+
+.domain-lifecycle-confirm .confirm-dialog {
+  width: min(100%, 440px);
+  max-height: 90dvh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.domain-lifecycle-confirm .confirm-dialog > p {
+  white-space: pre-line;
+}
+
+.domain-lifecycle-confirm .dialog-actions {
+  flex-wrap: wrap;
+}
+
+.domains-page .domain-alert > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.domains-page .domain-alert .domain-refresh {
+  width: auto;
+  flex: 0 1 auto;
+  min-height: 36px;
+  padding: 0 8px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .domain-lottery {
+    padding: 12px;
+  }
+
+  .domain-lottery-actions .ui-button,
+  .domain-lifecycle-confirm .dialog-actions .ui-button {
+    flex: 1 0 100%;
+    justify-content: center;
+  }
+}
